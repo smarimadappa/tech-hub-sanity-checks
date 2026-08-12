@@ -1,0 +1,11 @@
+{
+  "name": "gdm-skills",
+  "owner": { "name": "G2 GDM Team", "email": "smarimadappa@g2.com" },
+  "plugins": [
+    {
+      "name": "d001-sanity-check",
+      "source": "./plugins/d001-sanity-check",
+      "description": "Daily D-001 Performance Cube data-pipeline sanity check (DMABGS-3270): verify Snowflake tasks + cube freshness, post pass/fail to Slack."
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "d001-sanity-check",
+  "version": "0.1.0",
+  "description": "Daily D-001 Performance Cube data-pipeline sanity check (Jira DMABGS-3270): verify Snowflake tasks succeeded and cube max-dates are fresh, then post a pass/fail summary to Slack.",
+  "author": { "name": "G2 GDM Team", "email": "smarimadappa@g2.com" }
+}
