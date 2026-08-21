@@ -26,3 +26,28 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY NAME ORDER BY SCHEDULED_TIME DESC) = 1;
 SELECT MAX_DATE_SPEND, MAX_DATE_SITE, max_date_spend_capterra, max_date_spend_getapp,
        max_date_spend_software_advice, max_date_spend_ppc, max_date_spend_ppl
 FROM BUSINESS_ANALYTICS.ANALYTICS_MART.D000_CHANNEL_DASHBOARD_MAX_DATES;
+
+-- ============================================================
+-- revenue_reconciliation (informational only — never gates pass/fail)
+-- Source: GDM.PERFORMANCE.GDM_SES_PPC_PPL (account GARTNER_GDM, same account as the rest
+-- of this check). PPL only counts qualified+accepted leads, attributed to qual date, not
+-- session date or conversion date — verified against real data, don't "simplify" this.
+-- Replace :expected_max with EXPECTED_MAX from Step 1.
+-- ============================================================
+SELECT
+  SUM(CASE WHEN PPC_CLICK_TIMESTAMP_UTC::date = :expected_max THEN PPC_CLICK_AMOUNT END)
+    AS ppc_revenue,
+  SUM(CASE WHEN PPL_QUAL_TIMESTAMP_UTC::date = :expected_max
+             AND PPL_QUAL = 1 AND PPL_LEAD_STATUS = 'accepted'
+           THEN PPL_LEAD_AMOUNT END)
+    AS ppl_revenue
+FROM GDM.PERFORMANCE.GDM_SES_PPC_PPL
+WHERE DATE_UTC BETWEEN DATEADD('day', -3, :expected_max) AND DATEADD('day', 3, :expected_max);
+
+-- ============================================================
+-- revenue_reconciliation_destination (D-000) : the dashboard-side revenue to compare
+-- against ppc_revenue + ppl_revenue above, for the same :expected_max.
+-- ============================================================
+SELECT SUM(REVENUE_ACTUALS) AS destination_revenue
+FROM BUSINESS_ANALYTICS.ANALYTICS_MART.D000_CHANNEL_DASHBOARD
+WHERE DATE = :expected_max;

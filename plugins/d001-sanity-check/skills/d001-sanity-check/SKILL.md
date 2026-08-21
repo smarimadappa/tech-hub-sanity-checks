@@ -112,14 +112,29 @@ Run the single aggregate query in `references/queries.sql` (section "max_dates")
 each of the six returned dates to `EXPECTED_MAX`. Record any that differ (show the actual
 value, or "no data" if null).
 
-### Step 4 — Determine on-call
+### Step 4 — Revenue reconciliation vs. source (informational only, never gates pass/fail)
+
+Run `revenue_reconciliation` plus `revenue_reconciliation_destination` (both in
+`references/queries.sql`) for `EXPECTED_MAX`. Sum `ppc_revenue + ppl_revenue` (treat NULL as 0)
+and compare to `destination_revenue`.
+
+This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT add an
+on-call @-mention on its own, and is NOT itself a pass/fail check. (Verified against real data:
+the source/destination formula matches exactly most days but not every day for reasons not yet
+understood — see `references/queries.sql` comment — so treat any mismatch as a note, not a fault.)
+Report it as one line at the end of the Slack message:
+
+- Exact match: `Revenue vs. source: ✅ exact match ($<destination_revenue>)`
+- Mismatch: `Revenue vs. source: source $<ppc+ppl> vs. destination $<destination_revenue> (off by $<diff>, <pct>%)`
+
+### Step 5 — Determine on-call
 
 Weekly rotation, weeks start Monday. Pick the person whose week-start is the latest date
 that is `<=` today (IST). Resolve their Slack ID for the @-mention (`slack_search_users`
 by first name → g2.com account; fall back to the known IDs below; if none, use the plain
 name). Rotation and known IDs are in `references/rotation.md`.
 
-### Step 5 — Post the summary to Slack (always, tagging on-call)
+### Step 6 — Post the summary to Slack (always, tagging on-call)
 
 Post exactly one `slack_send_message` to channel_id `C0BN4GXJE10` (#sanity-check-testing),
 whether everything passed or not — this is a testing channel and the team wants confirmation
@@ -151,6 +166,7 @@ Max-date checks:
 6 | Monetization = PPL     | <date>       | ✅ / ❌
 
 <if any failure: one line per failing item with the actual state/date and any error message>
+Revenue vs. source: <exact match, or the off-by line from Step 4>
 Ref: DMABGS-3270
 ```
 

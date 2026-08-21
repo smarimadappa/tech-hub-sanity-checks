@@ -38,9 +38,11 @@ Slack channel, same on-call rotation. Post the result even on success so the tea
   are present.
 - **"Today" / "yesterday"** mean the UTC calendar day. This is a flagged assumption — the ticket
   doesn't say explicitly, unlike D-001 which is anchored on IST.
-- **Not implemented, intentionally:** revenue reconciliation (`ses_ppc_ppl` vs `data_product`,
-  from the ticket's acceptance criteria) — the source tables weren't specified in the ticket, and
-  this skill does not guess at names. Don't add it without a ticket update naming the tables.
+- **Revenue reconciliation is informational only, not a gate:** verified against real data in
+  `GARTNER_GDM` — the source (`GDM.PERFORMANCE.GDM_SES_PPC_PPL`) vs. destination formula matches
+  exactly on most days but not every day, for reasons not yet understood (checked
+  `GDM_CHANNEL_DASHBOARD_CORRECTION_DATA` — no rows for the mismatching date, so that's not it).
+  Because of that unexplained variance, it must never gate pass/fail or page on-call — see Step 4.
 - **Max-date view rollout:** `D000_CHANNEL_DASHBOARD_MAX_DATES` is being rolled out via a
   companion ticket and may not exist yet. A missing view is never a data failure — see Step 3.
 - **Keep in sync:** the on-call rotation table in `references/rotation.md` must stay identical
@@ -140,7 +142,22 @@ problem. Otherwise, run the `max_dates` query (`references/queries.sql`) and com
 returned dates to `EXPECTED_MAX`. Record any that differ (show the actual value, or "no data"
 if null).
 
-### Step 4 — Determine on-call
+### Step 4 — Revenue reconciliation vs. source (informational only, never gates pass/fail)
+
+Run `revenue_reconciliation` plus `revenue_reconciliation_destination` (both in
+`references/queries.sql`) for `EXPECTED_MAX`. Sum `ppc_revenue + ppl_revenue` (treat NULL as 0)
+and compare to `destination_revenue`.
+
+This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT add an
+on-call @-mention on its own, and is NOT itself a pass/fail check. (Verified against real data:
+the source/destination formula matches exactly most days but not every day for reasons not yet
+understood — see `references/queries.sql` comment — so treat any mismatch as a note, not a fault.)
+Report it as one line at the end of the Slack message:
+
+- Exact match: `Revenue vs. source: ✅ exact match ($<destination_revenue>)`
+- Mismatch: `Revenue vs. source: source $<ppc+ppl> vs. destination $<destination_revenue> (off by $<diff>, <pct>%)`
+
+### Step 5 — Determine on-call
 
 Same weekly (Monday-start) rotation as D-001 — Laurent, Yash, Pravin, Shalu, Shubham, Samiksha
 rotating. Pick the person whose week-start is the latest date `<=` today. Resolve their Slack
@@ -148,7 +165,7 @@ ID for the @-mention (`slack_search_users` by first name → g2.com account); kn
 `U08P1FZLFL0`, Laurent `U0ABL3UFE07`, Shubham `U0AFQQ52QJC`. Fall back to the plain name if a
 Slack ID can't be resolved. Full table in `references/rotation.md`.
 
-### Step 5 — Post the summary to Slack (always, tagging on-call)
+### Step 6 — Post the summary to Slack (always, tagging on-call)
 
 Post exactly one `slack_send_message` to channel_id `C0BN4GXJE10` (#sanity-check-testing),
 whether everything passed or not — this is a testing channel and the team wants confirmation
@@ -189,6 +206,7 @@ Max-date checks: <or "not available yet (view pending rollout, see DMABGS-3269)"
 7 | Spend = PPL                    | <date>    | ✅ / ❌
 
 <if any failure: one line per failing item with the actual state/date and any error message>
+Revenue vs. source: <exact match, or the off-by line from Step 4>
 Ref: DMABGS-3269
 ```
 
@@ -201,7 +219,7 @@ alarm on-call. Keep the message compact; only expand failing items with detail.
 - This is read-only against Snowflake — it never writes to the warehouse.
 - If a check legitimately lags (e.g. a known weekend delay), that will show as a failure;
   mention it in the summary rather than hiding it, so a human can judge.
-- Revenue reconciliation is out of scope until the ticket names its source tables — see
+- Revenue reconciliation (Step 4) is informational only and never gates pass/fail — see
   "Environment facts" above.
 - Exact SQL lives in `references/queries.sql`; the rotation table in `references/rotation.md`.
   Read those when running — they hold the authoritative task names, column names, and schedule.
