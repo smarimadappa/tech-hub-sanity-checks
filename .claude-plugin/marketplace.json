@@ -6,6 +6,11 @@
       "name": "d001-sanity-check",
       "source": "./plugins/d001-sanity-check",
       "description": "Daily D-001 Performance Cube data-pipeline sanity check (DMABGS-3270): verify Snowflake tasks + cube freshness, post pass/fail to Slack."
+    },
+    {
+      "name": "d000-sanity-check",
+      "source": "./plugins/d000-sanity-check",
+      "description": "Daily D-000 Channel Dashboard data-pipeline sanity check (DMABGS-3269): verify Snowflake tasks + dashboard freshness, post pass/fail to Slack."
     }
   ]
 }

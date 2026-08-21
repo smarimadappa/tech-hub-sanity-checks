@@ -12,14 +12,14 @@ You need **read access to this repo** first (private), and GitHub authenticated
 ### In Cowork (desktop app)
 
 1. Open **Customize** in the sidebar → **Plugins**.
-2. Click **Add marketplace** and enter `smarimadappa/d001-sanity-marketplace`
+2. Click **Add marketplace** and enter `smarimadappa/tech-hub-sanity-checks`
    (the `owner/repo` shorthand or the full GitHub URL both work).
 3. Find **d001-sanity-check** in the list and click **Install**.
 
 ### In Claude Code (terminal)
 
 ```
-/plugin marketplace add smarimadappa/d001-sanity-marketplace
+/plugin marketplace add smarimadappa/tech-hub-sanity-checks
 /plugin install d001-sanity-check@gdm-skills
 ```
 

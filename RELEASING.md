@@ -27,6 +27,6 @@ Users update via Customize → Plugins (Cowork) or `/plugin marketplace update` 
 Push commits WITHOUT bumping `version` and users see nothing — safe for work-in-progress.
 
 ## First-time setup for a new user (once)
-- Cowork: Customize → Plugins → Add marketplace `smarimadappa/d001-sanity-marketplace` → Install.
-- Claude Code: `/plugin marketplace add smarimadappa/d001-sanity-marketplace` then
-  `/plugin install d001-sanity-check@gdm-skills`.
+- Cowork: Customize → Plugins → Add marketplace `smarimadappa/tech-hub-sanity-checks` → Install.
+- Claude Code: `/plugin marketplace add smarimadappa/tech-hub-sanity-checks` then
+  `/plugin install d001-sanity-check@gdm-skills` (and, after step 3, `/plugin install d000-sanity-check@gdm-skills`).
