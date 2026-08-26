@@ -47,7 +47,9 @@ SELECT
            THEN PPL_LEAD_AMOUNT END)
     AS ppl_revenue
 FROM GDM.PERFORMANCE.GDM_SES_PPC_PPL
-WHERE DATE_UTC BETWEEN DATEADD('day', -3, :expected_max) AND DATEADD('day', 3, :expected_max);
+WHERE DATE_UTC BETWEEN DATEADD('day', -3, :expected_max) AND DATEADD('day', 3, :expected_max)
+       AND a.is_deleted = 0
+       AND a.site_property_id IN (1,2,3,4);;
 
 -- ============================================================
 -- revenue_reconciliation_destination (D-001) : the cube-side revenue to compare
