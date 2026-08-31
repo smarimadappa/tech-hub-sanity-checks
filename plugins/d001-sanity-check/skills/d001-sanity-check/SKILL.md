@@ -125,7 +125,8 @@ understood — see `references/queries.sql` comment — so treat any mismatch as
 Report it as one line at the end of the Slack message:
 
 - Exact match: `Revenue vs. source: ✅ exact match ($<destination_revenue>)`
-- Mismatch: `Revenue vs. source: source $<ppc+ppl> vs. destination $<destination_revenue> (off by $<diff>, <pct>%)`
+- Mismatch: `Revenue vs. source: <indicator> source $<ppc+ppl> vs. destination $<destination_revenue> (off by $<diff>, <pct>%)`
+  where `<indicator>` is 🟢 if `<pct>` < 10, 🟡 if 10–15, 🔴 if > 15
 
 ### Step 5 — Determine on-call
 
