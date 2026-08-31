@@ -122,19 +122,13 @@ Run the `max_dates` query (`references/queries.sql`). Compare each of the five
 returned dates to `EXPECTED_MAX`. Record any that differ (show the actual value,
 or "no data" if null).
 
-### Step 4 — Revenue reconciliation vs. source (informational only, never gates pass/fail)
+### Step 4 — Revenue reconciliation vs. source (SKIPPED — TBD)
 
-Run `revenue_reconciliation` plus `revenue_reconciliation_destination` (both in
-`references/queries.sql`) for `EXPECTED_MAX`. Sum `ppc_revenue + ppl_revenue`
-(treat NULL as 0) and compare to `destination_revenue`.
-
-This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT
-add an on-call @-mention on its own, and is NOT itself a pass/fail check. Report
-it as one line at the end of the Slack message:
-
-- Exact match: `Revenue vs. source: ✅ exact match ($<destination_revenue>)`
-- Mismatch: `Revenue vs. source: <indicator> source $<ppc+ppl> vs. destination $<destination_revenue> (off by $<diff>, <pct>%)`
-  where `<indicator>` is 🟢 if `<pct>` < 10, 🟡 if 10–15, 🔴 if > 15
+The destination revenue column for D-009 has not been confirmed yet —
+`D009_SITE_PERF_PPC` has `REVENUE_W_SESSION` and `REVENUE_WO_SESSION` but neither
+matched source on initial runs. Skip this step entirely for now and omit the
+revenue line from the Slack message. Once the correct column is confirmed, update
+`references/queries.sql` and this step.
 
 ### Step 5 — Determine on-call
 
@@ -142,8 +136,7 @@ Weekly rotation, weeks start Monday. Pick the person whose week-start is the
 latest date `<=` today (IST). Resolve their Slack ID for the @-mention
 (`slack_search_users` by first name → g2.com account); known IDs: Samiksha
 `U08P1FZLFL0`, Laurent `U0ABL3UFE07`, Shubham `U0AFQQ52QJC`. Fall back to the
-plain name if a Slack ID can't be resolved. Full table in `shared/rotation.md`
-(repo root).
+plain name if a Slack ID can't be resolved. Full table in `references/rotation.md`.
 
 ### Step 6 — Post the summary to Slack (always, tagging on-call)
 
@@ -200,7 +193,9 @@ on-call. Keep the message compact; only expand failing items with detail.
   failure; mention it in the summary rather than hiding it, so a human can judge.
 - Revenue reconciliation (Step 4) is informational only and never gates pass/fail.
 - Exact SQL lives in `references/queries.sql`; the rotation table in
-  `shared/rotation.md` (repo root). Read those when running — they hold the
-  authoritative task names, column names, and schedule.
-- The `REVENUE` column name in the destination query (`references/queries.sql`)
-  should be verified against real table schema on first run.
+  `references/rotation.md`. Read those when running — they hold the authoritative
+  task names, column names, and schedule.
+- `D009_SITE_PERF_PPL` and `D009_SITE_PERF_FORMS` use a column named `DATE`,
+  not `DATE_UTC` — the max_dates query accounts for this.
+- The revenue destination column in `references/queries.sql` is marked TBD —
+  skip the reconciliation step or report it as unresolved until confirmed.

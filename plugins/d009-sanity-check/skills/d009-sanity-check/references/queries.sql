@@ -26,13 +26,14 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY NAME ORDER BY SCHEDULED_TIME DESC) = 1;
 
 -- ============================================================
 -- max_dates : one row, five columns. Each should equal yesterday (UTC).
--- DATE_UTC is the date column in all five output tables.
+-- NOTE: PPL and FORMS use DATE (not DATE_UTC) — confirmed from real schema.
+-- CHAT and PV are assumed DATE_UTC; correct if needed.
 -- ============================================================
 SELECT
   (SELECT MAX(DATE_UTC) FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPC)   AS ppc,
-  (SELECT MAX(DATE_UTC) FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPL)   AS ppl,
+  (SELECT MAX(DATE)     FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPL)   AS ppl,
   (SELECT MAX(DATE_UTC) FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_CHAT)  AS chat,
-  (SELECT MAX(DATE_UTC) FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_FORMS) AS forms,
+  (SELECT MAX(DATE)     FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_FORMS) AS forms,
   (SELECT MAX(DATE_UTC) FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PV)    AS pv;
 
 -- ============================================================
@@ -54,13 +55,9 @@ WHERE DATE_UTC BETWEEN DATEADD('day', -3, :expected_max) AND DATEADD('day', 3, :
   AND site_property_id IN (1,2,3,4);
 
 -- ============================================================
--- revenue_reconciliation_destination (D-009) : sum PPC + PPL revenue from the
--- destination tables for the same :expected_max, to compare against source above.
--- Verify REVENUE is the correct column name when first running against real data.
+-- revenue_reconciliation_destination (D-009) : TBD
+-- D009_SITE_PERF_PPC has REVENUE_W_SESSION and REVENUE_WO_SESSION but neither
+-- matched source ($63,612) on 2026-08-29. Correct column/table TBD — skip this
+-- step or report as unresolved until confirmed by the team.
 -- ============================================================
-SELECT
-  COALESCE((SELECT SUM(REVENUE) FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPC
-             WHERE DATE_UTC = :expected_max), 0) +
-  COALESCE((SELECT SUM(REVENUE) FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPL
-             WHERE DATE_UTC = :expected_max), 0)
-  AS destination_revenue;
+-- SELECT ... AS destination_revenue;  -- placeholder, do not run until column confirmed

@@ -1,6 +1,6 @@
 {
   "name": "d009-sanity-check",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Daily D-009 Site Performance data-pipeline sanity check: verify Snowflake tasks succeeded and output table max dates are fresh, then post a pass/fail summary to Slack.",
   "author": { "name": "G2 GDM Team", "email": "smarimadappa@g2.com" }
 }
