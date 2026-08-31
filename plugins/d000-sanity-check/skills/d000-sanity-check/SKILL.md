@@ -164,7 +164,7 @@ Same weekly (Monday-start) rotation as D-001 — Laurent, Yash, Pravin, Shalu, S
 rotating. Pick the person whose week-start is the latest date `<=` today. Resolve their Slack
 ID for the @-mention (`slack_search_users` by first name → g2.com account); known IDs: Samiksha
 `U08P1FZLFL0`, Laurent `U0ABL3UFE07`, Shubham `U0AFQQ52QJC`. Fall back to the plain name if a
-Slack ID can't be resolved. Full table in `references/rotation.md`.
+Slack ID can't be resolved. Full table in `shared/rotation.md` (repo root).
 
 ### Step 6 — Post the summary to Slack (always, tagging on-call)
 
@@ -222,5 +222,5 @@ alarm on-call. Keep the message compact; only expand failing items with detail.
   mention it in the summary rather than hiding it, so a human can judge.
 - Revenue reconciliation (Step 4) is informational only and never gates pass/fail — see
   "Environment facts" above.
-- Exact SQL lives in `references/queries.sql`; the rotation table in `references/rotation.md`.
+- Exact SQL lives in `references/queries.sql`; the rotation table in `shared/rotation.md` (repo root).
   Read those when running — they hold the authoritative task names, column names, and schedule.

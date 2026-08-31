@@ -1,6 +1,6 @@
 {
   "name": "d000-sanity-check",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Daily D-000 Channel Dashboard data-pipeline sanity check (Jira DMABGS-3269): verify Snowflake tasks succeeded and dashboard max-dates are fresh, then post a pass/fail summary to Slack.",
   "author": { "name": "G2 GDM Team", "email": "smarimadappa@g2.com" }
 }

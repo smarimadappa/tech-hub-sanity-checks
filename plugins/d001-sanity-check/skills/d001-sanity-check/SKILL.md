@@ -133,7 +133,7 @@ Report it as one line at the end of the Slack message:
 Weekly rotation, weeks start Monday. Pick the person whose week-start is the latest date
 that is `<=` today (IST). Resolve their Slack ID for the @-mention (`slack_search_users`
 by first name → g2.com account; fall back to the known IDs below; if none, use the plain
-name). Rotation and known IDs are in `references/rotation.md`.
+name). Rotation and known IDs are in `shared/rotation.md` (repo root).
 
 ### Step 6 — Post the summary to Slack (always, tagging on-call)
 
@@ -180,5 +180,5 @@ alarm on-call. Keep the message compact; only expand failing items with detail.
 - This is read-only against Snowflake — it never writes to the warehouse.
 - If a check legitimately lags (e.g. a known weekend delay), that will show as a failure;
   mention it in the summary rather than hiding it, so a human can judge.
-- Exact SQL lives in `references/queries.sql`; the rotation table in `references/rotation.md`.
+- Exact SQL lives in `references/queries.sql`; the rotation table in `shared/rotation.md` (repo root).
   Read those when running — they hold the authoritative task names, column names, and schedule.
