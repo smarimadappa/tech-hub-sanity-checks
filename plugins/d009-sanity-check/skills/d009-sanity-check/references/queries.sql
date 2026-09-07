@@ -72,7 +72,7 @@ ORDER BY TABLE_NAME, COLUMN_NAME;
 
 -- ============================================================
 -- revenue_reconciliation_destination (D-009)
--- Compare against ppc_revenue + ppl_revenue from the source query above.
+-- Compare the total against ppc_revenue + ppl_revenue from the source query above.
 -- Key column differences confirmed from schema:
 --   D009_SITE_PERF_PPC  → date column is DATE_UTC; revenue column is REVENUE_WO_SESSION
 --   D009_SITE_PERF_PPL  → date column is DATE (not DATE_UTC, same as max_dates query)
@@ -80,9 +80,11 @@ ORDER BY TABLE_NAME, COLUMN_NAME;
 -- Replace :expected_max with EXPECTED_MAX from Step 1.
 -- ============================================================
 SELECT
-  (SELECT SUM(REVENUE_WO_SESSION)
-     FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPC
-    WHERE DATE_UTC = :expected_max)  AS destination_ppc_revenue,
-  (SELECT SUM(REVENUE)
-     FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPL
-    WHERE DATE    = :expected_max)   AS destination_ppl_revenue;
+  COALESCE((SELECT SUM(REVENUE_WO_SESSION)
+              FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPC
+             WHERE DATE_UTC = :expected_max), 0)
+  +
+  COALESCE((SELECT SUM(REVENUE)
+              FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPL
+             WHERE DATE    = :expected_max), 0)
+  AS destination_revenue;

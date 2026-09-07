@@ -124,26 +124,22 @@ or "no data" if null).
 
 ### Step 4 — Revenue reconciliation vs. source (informational only)
 
-Run both the source and destination revenue queries from `references/queries.sql`.
+Run `revenue_reconciliation` plus `revenue_reconciliation_destination` (both in
+`references/queries.sql`) for `EXPECTED_MAX`. Sum `ppc_revenue + ppl_revenue` (treat NULL as 0)
+and compare to `destination_revenue`.
 
-**Source query** (`revenue_reconciliation`) returns `ppc_revenue` and `ppl_revenue`.
+This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT add an
+on-call @-mention on its own, and is NOT itself a pass/fail check. (Source vs. destination may
+not match exactly every day for reasons not yet fully understood — treat any mismatch as a note,
+not a fault.) Report it as one line at the end of the Slack message:
 
-**Destination query** (`revenue_reconciliation_destination`) returns:
-- `destination_ppc_revenue` — `SUM(REVENUE_WO_SESSION)` from `D009_SITE_PERF_PPC`
-  filtered by `DATE_UTC = EXPECTED_MAX`
-- `destination_ppl_revenue` — `SUM(REVENUE)` from `D009_SITE_PERF_PPL`
-  filtered by `DATE = EXPECTED_MAX` (this table uses `DATE`, not `DATE_UTC`)
+- Exact match: `Revenue vs. source: ✅ exact match ($<destination_revenue>)`
+- Mismatch: `Revenue vs. source: <indicator> source $<ppc+ppl> vs. destination $<destination_revenue> (off by $<diff>, <pct>%)`
+  where `<indicator>` is 🟢 if `<pct>` < 10, 🟡 if 10–15, 🔴 if > 15
 
-If the `SUM(REVENUE)` call on `D009_SITE_PERF_PPL` errors (column not found), run the
-`schema_discovery` query from `references/queries.sql` to find the actual revenue column
-name, substitute it, and re-run. Update `references/queries.sql` with the correct column.
-
-Compare:
-- Source PPC vs destination PPC
-- Source PPL vs destination PPL
-- Source total (PPC + PPL) vs destination total (PPC + PPL)
-
-Report all three pairs as informational. This step never gates pass/fail.
+If the `destination_revenue` query errors (column not found on `D009_SITE_PERF_PPL`), run the
+`schema_discovery` query from `references/queries.sql` to confirm the PPL revenue column name,
+substitute it, re-run, and update `references/queries.sql`.
 
 ### Step 5 — Determine on-call
 
@@ -194,10 +190,7 @@ Max-date checks:
 5 | Pageviews (PV) | <date>       | ✅ / ❌
 
 <if any failure: one line per failing item with the actual state/date and any error message>
-Revenue (informational):
-  PPC  — source $<ppc_revenue>  ·  dest $<destination_ppc_revenue>  ·  <✅ match | ⚠️ diff $X>
-  PPL  — source $<ppl_revenue>  ·  dest $<destination_ppl_revenue>  ·  <✅ match | ⚠️ diff $X>
-  Total — source $<sum>  ·  dest $<sum>  ·  <✅ match | ⚠️ diff $X>
+Revenue vs. source: <exact match, or the off-by line from Step 4>
 ```
 
 The header carries the state emoji, so no separate "test" framing is needed —
@@ -215,5 +208,5 @@ on-call. Keep the message compact; only expand failing items with detail.
   task names, column names, and schedule.
 - `D009_SITE_PERF_PPL` and `D009_SITE_PERF_FORMS` use a column named `DATE`,
   not `DATE_UTC` — the max_dates query accounts for this.
-- The revenue destination column in `references/queries.sql` is marked TBD —
-  skip the reconciliation step or report it as unresolved until confirmed.
+- The PPL revenue column (`REVENUE`) in the destination query is assumed — if it errors,
+  run `schema_discovery` from `references/queries.sql` to confirm and update the file.
