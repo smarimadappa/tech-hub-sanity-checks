@@ -122,13 +122,28 @@ Run the `max_dates` query (`references/queries.sql`). Compare each of the five
 returned dates to `EXPECTED_MAX`. Record any that differ (show the actual value,
 or "no data" if null).
 
-### Step 4 — Revenue reconciliation vs. source (SKIPPED — TBD)
+### Step 4 — Revenue reconciliation vs. source (informational only)
 
-The destination revenue column for D-009 has not been confirmed yet —
-`D009_SITE_PERF_PPC` has `REVENUE_W_SESSION` and `REVENUE_WO_SESSION` but neither
-matched source on initial runs. Skip this step entirely for now and omit the
-revenue line from the Slack message. Once the correct column is confirmed, update
-`references/queries.sql` and this step.
+Run both the source and destination revenue queries from `references/queries.sql`.
+
+**Source query** (`revenue_reconciliation`) returns `ppc_revenue` and `ppl_revenue`.
+
+**Destination query** (`revenue_reconciliation_destination`) returns:
+- `destination_ppc_revenue` — `SUM(REVENUE_WO_SESSION)` from `D009_SITE_PERF_PPC`
+  filtered by `DATE_UTC = EXPECTED_MAX`
+- `destination_ppl_revenue` — `SUM(REVENUE)` from `D009_SITE_PERF_PPL`
+  filtered by `DATE = EXPECTED_MAX` (this table uses `DATE`, not `DATE_UTC`)
+
+If the `SUM(REVENUE)` call on `D009_SITE_PERF_PPL` errors (column not found), run the
+`schema_discovery` query from `references/queries.sql` to find the actual revenue column
+name, substitute it, and re-run. Update `references/queries.sql` with the correct column.
+
+Compare:
+- Source PPC vs destination PPC
+- Source PPL vs destination PPL
+- Source total (PPC + PPL) vs destination total (PPC + PPL)
+
+Report all three pairs as informational. This step never gates pass/fail.
 
 ### Step 5 — Determine on-call
 
@@ -179,7 +194,10 @@ Max-date checks:
 5 | Pageviews (PV) | <date>       | ✅ / ❌
 
 <if any failure: one line per failing item with the actual state/date and any error message>
-Revenue vs. source: <exact match, or the off-by line from Step 4>
+Revenue (informational):
+  PPC  — source $<ppc_revenue>  ·  dest $<destination_ppc_revenue>  ·  <✅ match | ⚠️ diff $X>
+  PPL  — source $<ppl_revenue>  ·  dest $<destination_ppl_revenue>  ·  <✅ match | ⚠️ diff $X>
+  Total — source $<sum>  ·  dest $<sum>  ·  <✅ match | ⚠️ diff $X>
 ```
 
 The header carries the state emoji, so no separate "test" framing is needed —

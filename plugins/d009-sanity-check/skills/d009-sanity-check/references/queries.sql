@@ -55,9 +55,34 @@ WHERE DATE_UTC BETWEEN DATEADD('day', -3, :expected_max) AND DATEADD('day', 3, :
   AND site_property_id IN (1,2,3,4);
 
 -- ============================================================
--- revenue_reconciliation_destination (D-009) : TBD
--- D009_SITE_PERF_PPC has REVENUE_W_SESSION and REVENUE_WO_SESSION but neither
--- matched source ($63,612) on 2026-08-29. Correct column/table TBD — skip this
--- step or report as unresolved until confirmed by the team.
+-- schema_discovery : revenue/amount columns in all D009 output tables.
+-- Run this once if destination column names are uncertain; not needed on every check.
 -- ============================================================
--- SELECT ... AS destination_revenue;  -- placeholder, do not run until column confirmed
+SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
+FROM BUSINESS_ANALYTICS.INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'BX_ANALYTICS'
+  AND TABLE_NAME IN (
+        'D009_SITE_PERF_PPC',
+        'D009_SITE_PERF_PPL',
+        'D009_SITE_PERF_CHAT',
+        'D009_SITE_PERF_FORMS',
+        'D009_SITE_PERF_PV')
+  AND (COLUMN_NAME ILIKE '%REVENUE%' OR COLUMN_NAME ILIKE '%AMOUNT%')
+ORDER BY TABLE_NAME, COLUMN_NAME;
+
+-- ============================================================
+-- revenue_reconciliation_destination (D-009)
+-- Compare against ppc_revenue + ppl_revenue from the source query above.
+-- Key column differences confirmed from schema:
+--   D009_SITE_PERF_PPC  → date column is DATE_UTC; revenue column is REVENUE_WO_SESSION
+--   D009_SITE_PERF_PPL  → date column is DATE (not DATE_UTC, same as max_dates query)
+--                          revenue column assumed REVENUE — verify with schema_discovery
+-- Replace :expected_max with EXPECTED_MAX from Step 1.
+-- ============================================================
+SELECT
+  (SELECT SUM(REVENUE_WO_SESSION)
+     FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPC
+    WHERE DATE_UTC = :expected_max)  AS destination_ppc_revenue,
+  (SELECT SUM(REVENUE)
+     FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPL
+    WHERE DATE    = :expected_max)   AS destination_ppl_revenue;
