@@ -4,14 +4,18 @@ description: >-
   Run the daily D-000 Channel Dashboard data-pipeline sanity check (Jira DMABGS-3269) and post
   a pass/fail summary to Slack. Use this skill WHENEVER the user asks to run or trigger the
   "D-000 sanity check", "sanity check the channel dashboard", check whether the
-  GDM_SPEND_IMPR_CLICKS or GDM_CHANNEL_DASHBOARD_V3 Snowflake tasks ran, confirm the D-000 max
+  D000_CHANNEL_DASHBOARD Snowflake task ran, confirm the D-000 max
   dates are current, or when a scheduled task invokes the daily D-000 check — even if phrased
   loosely (e.g. "is the channel dashboard fresh?", "did spend/impressions/clicks load today?",
   "check the D-000 pipeline"). It checks the GDM Snowflake + Slack connectors and live compute
-  first, verifies the five D-000 Snowflake tasks succeeded, checks the
+  first, verifies the D-000 Snowflake task succeeded, checks that each dashboard slice is fresh
+  with non-zero revenue and spend, checks the
   D000_CHANNEL_DASHBOARD_MAX_DATES view (degrading gracefully if that view isn't deployed yet),
-  then posts the result (tagging the week's on-call) to #sanity-check-testing. Prefer this skill
-  over ad-hoc SQL whenever D-000 / channel dashboard monitoring is involved.
+  then posts the result (tagging the week's on-call) to #sanity-check-testing. Also runs a
+  shadow-mode trend/anomaly check that flags unlikely day-over-day swings in the new data
+  versus recent same-weekday norms (per channel, US-holiday aware) — informational only, never
+  gates. Prefer this skill over ad-hoc SQL whenever D-000 / channel dashboard monitoring is
+  involved.
 ---
 
 # D-000 Channel Dashboard — daily sanity check
@@ -49,23 +53,26 @@ Slack channel, same on-call rotation. Post the result even on success so the tea
   to `d001-sanity-check`'s copy (same team, same channel). They are independent files with no
   automatic sharing — update both by hand.
 
-## The five Snowflake tasks
+## The Snowflake task
 
-All under database `BUSINESS_ANALYTICS`, schema `CHANNEL_ANALYTICS` except the last:
+- `D000_CHANNEL_DASHBOARD` (`BUSINESS_ANALYTICS.ANALYTICS_MART`) — calls `SP_CHANNEL_DASHBOARD()`
 
-- `GDM_SPEND_IMPR_CLICKS_DELETE` (CHANNEL_ANALYTICS)
-- `GDM_SPEND_IMPR_CLICKS_INSERT` (CHANNEL_ANALYTICS)
-- `GDM_CHANNEL_DASHBOARD_V3_DELETE` (CHANNEL_ANALYTICS)
-- `GDM_CHANNEL_DASHBOARD_V3_INSERT` (CHANNEL_ANALYTICS)
-- `D000_CHANNEL_DASHBOARD` (ANALYTICS_MART) — calls `SP_CHANNEL_DASHBOARD()`
+Its latest non-`SCHEDULED` run must be `SUCCEEDED`. The old `GDM_SPEND_IMPR_CLICKS_DELETE` /
+`GDM_SPEND_IMPR_CLICKS_INSERT` / `GDM_CHANNEL_DASHBOARD_V3_DELETE` /
+`GDM_CHANNEL_DASHBOARD_V3_INSERT` tasks (CHANNEL_ANALYTICS) are **no longer used** and are not
+monitored — dropped per Laurent's post-demo feedback.
 
-Each one's latest non-`SCHEDULED` run must be `SUCCEEDED`.
-
-## The seven max-date checks
+## The seven max-date checks (freshness) + value>0
 
 Once the view exists, each of these must equal yesterday (UTC): `MAX_DATE_SPEND`,
 `MAX_DATE_SITE`, `max_date_spend_capterra`, `max_date_spend_getapp`,
 `max_date_spend_software_advice`, `max_date_spend_ppc`, `max_date_spend_ppl`.
+
+Freshness alone isn't enough — a slice can land a fresh date with all-zero revenue/spend
+(a silent partial failure). So a separate `max_value_check` query (see Step 3.1) asserts
+non-zero `REVENUE_ACTUALS` **and** `SPEND_ACTUALS` on the max date for each of six slices
+(overall + 3 brands + PPC + PPL), reading `D000_CHANNEL_DASHBOARD` directly (so it works even
+before the max-date view ships). This is Laurent's post-demo ask.
 
 ## Run the check in this order
 
@@ -118,11 +125,11 @@ to anchor everything:
 Anchoring on the actual run rather than the wall clock keeps an early or off-schedule run honest:
 it reports "today's cycle pending" instead of false-alarming.
 
-### Step 2 — Evaluate task states
+### Step 2 — Evaluate task state
 
-For each of the five tasks, take the latest non-`SCHEDULED` run. A task **fails** only if that
+Take the latest non-`SCHEDULED` run of `D000_CHANNEL_DASHBOARD`. It **fails** only if that
 run's `STATE` is not `SUCCEEDED` (capture the state + error message) — a genuine problem. Do
-**not** fail a task merely because today's cycle hasn't started; that's the PENDING case from
+**not** fail it merely because today's cycle hasn't started; that's the PENDING case from
 Step 1, not an error.
 
 ### Step 3 — Max-date check (degrade gracefully if the view isn't there yet)
@@ -142,21 +149,85 @@ problem. Otherwise, run the `max_dates` query (`references/queries.sql`) and com
 returned dates to `EXPECTED_MAX`. Record any that differ (show the actual value, or "no data"
 if null).
 
-### Step 4 — Revenue reconciliation vs. source (informational only, never gates pass/fail)
+### Step 3.1 — Value>0 check (freshness isn't enough)
 
-Run `revenue_reconciliation` plus `revenue_reconciliation_destination` (both in
-`references/queries.sql`) for `EXPECTED_MAX`. Sum `ppc_revenue + ppl_revenue` (treat NULL as 0)
-and compare to `destination_revenue`.
+Run the `max_value_check` query (`references/queries.sql`). It returns one row per slice
+(overall + Capterra / GetApp / Software Advice + PPC / PPL) with `max_date`, `rev_on_max`, and
+`spend_on_max`, read straight from `D000_CHANNEL_DASHBOARD` (`IS_COMPLETE = 1`), so it runs even
+if the max-date view isn't deployed yet. A slice **fails** if `max_date` ≠ `EXPECTED_MAX`, or
+`rev_on_max` ≤ 0, or `spend_on_max` ≤ 0. This catches a fresh-but-empty slice a date-only check
+would pass. It gates the same way the max-date checks do (a real data failure).
 
-This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT add an
-on-call @-mention on its own, and is NOT itself a pass/fail check. (Verified against real data:
-the source/destination formula matches exactly most days but not every day for reasons not yet
-understood — see `references/queries.sql` comment — so treat any mismatch as a note, not a fault.)
-Report it as one line at the end of the Slack message:
+### Step 3.5 — Trend / anomaly check (SHADOW MODE — informational only, never gates)
 
-- Exact match: `Revenue vs. source: ✅ exact match ($<destination_revenue>)`
-- Mismatch: `Revenue vs. source: <indicator> source $<ppc+ppl> vs. destination $<destination_revenue> (off by $<diff>, <pct>%)`
-  where `<indicator>` is 🟢 if `<pct>` < 10, 🟡 if 10–15, 🔴 if > 15
+Beyond "did the data land," this checks whether the newly-landed day looks *sane*
+versus history: are there unlikely/unwanted swings in the new data compared to
+recent same-weekday norms? Run the `anomaly.sql` query (`references/`) as-is —
+it returns one row per `channel × measure` (revenue, spend, sessions) for the
+latest complete actuals day.
+
+Each row comes back with a `status`: `new-break-up` / `new-break-down` /
+`ongoing-up` / `ongoing-down` / `ok` / `insufficient-baseline` / `holiday-suppressed`.
+How it decides (all baked into the query, verified against real `GARTNER_GDM` data —
+see the backtest note at the bottom of `anomaly.sql` for the numbers):
+
+- **Same-weekday baseline.** Each value is compared to the median of the trailing
+  **6 same-weekday** complete days (Mon vs. Mondays), requiring ≥4 valid points.
+  Weekday/weekend swings here are huge and channel-specific (Partners and Paid Social
+  revenue collapse to ~0 on weekends; PPL revenue ~0 and PPL cost tiny on weekends/
+  holidays), so a same-day-of-week comparison is the only honest baseline.
+- **Robust band + absolute floor.** Flags when `|robust_z| > 3.5` (median + MAD, so one
+  weird past day doesn't poison the band) **and** `|pct deviation| > 15%` **and** the
+  baseline median clears a per-measure **absolute floor** ($5k revenue/spend, 5k
+  sessions). The absolute floor is what kills small-channel noise (AEO/Referral/Email
+  swing hundreds of percent on tiny absolute values a % floor alone can't catch).
+- **New-break vs. ongoing-trend.** A flat-median detector fires every day *during* a
+  sustained trend because the baseline lags. So the query scores the target day **and**
+  the previous eligible day and only calls it a `new-break` when yesterday wasn't
+  already flagged the same direction — otherwise `ongoing`. This is what makes it
+  actionable (~1 new-break/day vs. ~4 raw flags/day in the backtest).
+- **Sessions are de-duplicated.** `SESSIONS` is repeated identically across
+  `MONETIZATION_TYPE` (PPC row == PPL row), so summing it naively double-counts 2× — the
+  query takes `MAX` per `(date, channel, brand, domain)` grain first. Revenue/spend
+  genuinely differ by type and are summed directly. (See Notes → sessions caveat.)
+- **US-holiday aware** (`references/us_holidays.md`). If the target day is a US bank
+  holiday or weekend, every row is `holiday-suppressed` (a low day is expected, not an
+  anomaly). Holidays are also excluded from the baseline so e.g. a Labor Day Monday
+  can't drag later Mondays' norms down. (Real check: 2026-09-07 Labor Day naively
+  false-flags Organic Search −60%; suppression handles it.)
+- **`IS_COMPLETE = 1`** defines the actuals boundary — the table carries forecast rows
+  ~2 years into the future, so never key off `MAX(DATE)`.
+
+**This is shadow mode.** It NEVER changes the ✅ / ⏳ / 🚨 header and NEVER adds an
+on-call @-mention — it's an observation line only, so the team can watch it for a
+tuning week before deciding which cases (if any) should graduate to a real gate.
+Surface the **`new-break-*`** rows in the `Trend check (shadow)` block (Step 6); list
+any **`ongoing-*`** rows as a demoted one-line footnote (a channel mid-trend shouldn't
+re-alarm daily). If nothing broke, say so in one line.
+
+### Step 4 — Revenue reconciliation vs. source, day by day (informational only, never gates)
+
+Run `revenue_reconciliation` (`references/queries.sql`) with `:expected_max` = `EXPECTED_MAX`.
+It compares source `GDM.PERFORMANCE.GDM_SES_PPC_PPL` vs `D000_CHANNEL_DASHBOARD` `REVENUE_ACTUALS`
+**day by day over a rolling ~2-month window** — Laurent's post-demo ask, since a single-day
+match can hide a mid-window break. Verified to match to the dollar across the window.
+
+This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT add an on-call
+@-mention on its own, and is NOT a pass/fail check. Per day, classify by `|pct|`: 🟢 < 10,
+🟡 10–15, 🔴 > 15. Report as a **one-line summary** (don't paste ~60 rows):
+
+- All clean: `Revenue vs. source (60d): ✅ all days within 10%`
+- Otherwise: `Revenue vs. source (60d): 🔴 N/61 days off >10% — worst <date> <pct>% (src $<x> vs dest $<y>)`,
+  listing at most the 2–3 worst days.
+
+To widen the window toward the full fiscal year later, change the `-60` in the query.
+
+**Spend reconciliation is HELD for D-000** (Laurent's "same but for spend"): D-000 has no
+source/engine column, so its `SPEND_ACTUALS` can't be scoped to the source-of-truth spend table
+the way D-001's cube can (a `CHANNEL_ID` join reconciles poorly, off −6% to −45% day by day).
+Shipping it would emit constant noise, so it waits for the right key/attribution — see the
+`spend_reconciliation` note in `references/queries.sql`. The Step 3.1 spend>0 value check is
+unaffected (it reads D-000's own `SPEND_ACTUALS`, no source join).
 
 ### Step 5 — Determine on-call
 
@@ -175,12 +246,14 @@ either way. Tag the on-call person with `<@USERID>`.
 Pick the header from three states:
 
 - `:white_check_mark: All checks passed` — normal same-day run (`CYCLE_DATE` = today), all
-  seven max dates = `EXPECTED_MAX` (or the view isn't deployed yet, per Step 3), and all five
-  tasks `SUCCEEDED`.
+  seven max dates = `EXPECTED_MAX` (or the view isn't deployed yet, per Step 3), all six value
+  slices have non-zero revenue and spend on their max date, and the task `SUCCEEDED`.
 - `:hourglass_flowing_sand: Today's cycle pending — last cycle healthy` — today's run hasn't
   happened yet (`CYCLE_DATE` < today) but everything else checks out. Keep it low-key.
-- `:rotating_light: FAILURES DETECTED` — any max date differs from `EXPECTED_MAX`, or any
-  task's latest run is not `SUCCEEDED`. This is the one that must reach on-call.
+- `:rotating_light: FAILURES DETECTED` — any max date differs from `EXPECTED_MAX`, any value
+  slice has zero revenue/spend on its max date, or the task's latest run is not `SUCCEEDED`.
+  This is the one that must reach on-call. (The day-by-day revenue reconciliation is
+  informational and never triggers this state.)
 
 Use this layout — task states go **first** (they're the primary signal), then the max-date
 table (or the "not available yet" note):
@@ -189,11 +262,7 @@ table (or the "not available yet" note):
 *D-000 sanity check* — <one of the three headers above>
 Expected max date: <EXPECTED_MAX>  (dashboard cycle: <CYCLE_DATE>)   ·   On-call: <@oncall>
 
-Tasks (latest run):
-  GDM_SPEND_IMPR_CLICKS_DELETE      ·  <SUCCEEDED ✅ | STATE ❌>
-  GDM_SPEND_IMPR_CLICKS_INSERT      ·  <SUCCEEDED ✅ | STATE ❌>
-  GDM_CHANNEL_DASHBOARD_V3_DELETE   ·  <SUCCEEDED ✅ | STATE ❌>
-  GDM_CHANNEL_DASHBOARD_V3_INSERT   ·  <SUCCEEDED ✅ | STATE ❌>
+Task (latest run):
   D000_CHANNEL_DASHBOARD            ·  <SUCCEEDED ✅ | STATE ❌>
 
 Max-date checks: <or "not available yet (view pending rollout, see DMABGS-3269)">
@@ -206,8 +275,19 @@ Max-date checks: <or "not available yet (view pending rollout, see DMABGS-3269)"
 6 | Spend = PPC                    | <date>    | ✅ / ❌
 7 | Spend = PPL                    | <date>    | ✅ / ❌
 
-<if any failure: one line per failing item with the actual state/date and any error message>
-Revenue vs. source: <exact match, or the off-by line from Step 4>
+Value>0 checks (revenue & spend on max date):
+# | Slice            | Max Date  | Rev | Spend | Status
+1 | Overall          | <date>    | >0? | >0?   | ✅ / ❌
+2 | Capterra         | <date>    | >0? | >0?   | ✅ / ❌
+3 | GetApp           | <date>    | >0? | >0?   | ✅ / ❌
+4 | Software Advice  | <date>    | >0? | >0?   | ✅ / ❌
+5 | PPC              | <date>    | >0? | >0?   | ✅ / ❌
+6 | PPL              | <date>    | >0? | >0?   | ✅ / ❌
+
+<if any failure: one line per failing item — stale date or zero value — with the actual numbers>
+Revenue vs. source (60d): <one-line summary from Step 4>
+Trend check (shadow): <✅ no new breaks | ⚠️ N new break(s): "<channel> <measure> <▲/▼> <today> vs ~<median> same-weekday median (<pct>%)" per new-break row | 🇺🇸 holiday — suppressed>
+  <if any ongoing-* rows: "…plus M ongoing trend(s): <channel> <measure> <▲/▼>" on one demoted line>
 Ref: DMABGS-3269
 ```
 
@@ -222,5 +302,26 @@ alarm on-call. Keep the message compact; only expand failing items with detail.
   mention it in the summary rather than hiding it, so a human can judge.
 - Revenue reconciliation (Step 4) is informational only and never gates pass/fail — see
   "Environment facts" above.
-- Exact SQL lives in `references/queries.sql`; the rotation table in `references/rotation.md`.
-  Read those when running — they hold the authoritative task names, column names, and schedule.
+- The trend/anomaly check (Step 3.5) is **shadow mode**: informational only, never gates,
+  never pings on-call. It's meant to run for a tuning week before any case is promoted to a
+  real gate. Thresholds, the baseline window, the absolute floors, and the new-break/ongoing
+  logic are documented at the top of `references/anomaly.sql`; the US-holiday calendar it
+  depends on is `references/us_holidays.md` (keep that list current — add the next year each
+  January).
+- **Data caveat — `SESSIONS` is not additive across `MONETIZATION_TYPE`.** Verified in
+  `GARTNER_GDM`: for each `(date, channel, brand, domain_group)` the `SESSIONS` value is
+  identical on the PPC and PPL rows (it's a domain-grain metric repeated per monetization
+  type). Summing it across that dimension double-counts 2×. `anomaly.sql` de-dups via
+  `MAX(SESSIONS)` per grain; any future query touching `SESSIONS` (or pageviews/impressions)
+  must do the same. `REVENUE_ACTUALS` / `SPEND_ACTUALS` genuinely differ by type and ARE
+  additive.
+- **Known live trend (context, not a fault) — Direct sessions surge.** As of Sep 2026,
+  de-duplicated Direct sessions have level-shifted ~13× since early July (~319k → ~4.3M/wk),
+  almost entirely in `DOMAIN_GROUP = 'TLD'` (~41×; `COM` barely moved), concentrated in the
+  Capterra + GetApp brands. A jump that localized reads more like a tracking/classification
+  change or bot/crawler influx than broad organic growth — worth confirming with the data
+  owner. Until confirmed, expect the trend check to emit `new-break-up` / `ongoing-up` rows
+  for Direct sessions on its step-up days; that's the detector working, not a pipeline fault.
+- Exact SQL lives in `references/queries.sql` and `references/anomaly.sql`; the rotation table
+  in `references/rotation.md`. Read those when running — they hold the authoritative task
+  names, column names, thresholds, and schedule.

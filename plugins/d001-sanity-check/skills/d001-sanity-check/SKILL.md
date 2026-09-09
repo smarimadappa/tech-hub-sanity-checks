@@ -50,10 +50,14 @@ Both are daily: their latest run must be `SUCCEEDED` and dated *today* (IST) on 
 same-day run. (The hourly `SUPERSET_INSERT`/`SUPERSET_DELETE` tasks are intentionally not
 monitored — they're not the freshness-critical steps.)
 
-## The six max-date checks
+## The six max-date checks (freshness **and** non-zero value)
 
-Each must equal yesterday (IST): overall, and filtered to `BRAND` in Capterra / GetApp /
-Software Advice, and `MONETIZATION_TYPE` in PPC / PPL.
+Six slices: overall, `BRAND` in Capterra / GetApp / Software Advice, and `MONETIZATION_TYPE`
+in PPC / PPL. Each slice must (a) have `MAX_DATE` = yesterday (IST) **and** (b) have non-zero
+`REVENUE` **and** `SPEND` on that max date. The value>0 half is Laurent's post-demo ask: a
+slice can land a fresh date with all-zero revenue/spend (a silent partial failure) that a
+date-only check sails past. Both PPC and PPL genuinely carry spend, so spend>0 applies to
+every slice — verified against real data.
 
 ## Run the check in this order
 
@@ -106,27 +110,46 @@ Anchoring on the actual refresh rather than the wall clock keeps an early or off
 
 For each of the two tasks, take the latest non-`SCHEDULED` run. A task **fails** only if that run's `STATE` is not `SUCCEEDED` (capture the state + error message) — a genuine problem. Do **not** fail a task merely because today's cycle hasn't started; that's the PENDING case from Step 1, not an error.
 
-### Step 3 — Max-date check
+### Step 3 — Max-date check (freshness + value>0)
 
-Run the single aggregate query in `references/queries.sql` (section "max_dates"). Compare
-each of the six returned dates to `EXPECTED_MAX`. Record any that differ (show the actual
-value, or "no data" if null).
+Run the `max_dates` query in `references/queries.sql` — it returns one row per slice with
+`max_date`, `rev_on_max`, and `spend_on_max`. For each of the six slices, a **failure** is
+either: `max_date` ≠ `EXPECTED_MAX`, **or** `rev_on_max` ≤ 0, **or** `spend_on_max` ≤ 0.
+Record what failed (stale date, or zero-value) with the actual numbers (or "no data" if null).
 
-### Step 4 — Revenue reconciliation vs. source (informational only, never gates pass/fail)
+### Step 4 — Reconciliation vs. source, day by day (informational only, never gates pass/fail)
 
-Run `revenue_reconciliation` plus `revenue_reconciliation_destination` (both in
-`references/queries.sql`) for `EXPECTED_MAX`. Sum `ppc_revenue + ppl_revenue` (treat NULL as 0)
-and compare to `destination_revenue`.
+Two reconciliations, both **day by day over a rolling ~2-month window** (not just the last
+day — Laurent's post-demo ask: a single-day match can hide a mid-window break). Both are in
+`references/queries.sql`; both take `:expected_max` = `EXPECTED_MAX`.
 
-This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT add an
-on-call @-mention on its own, and is NOT itself a pass/fail check. (Verified against real data:
-the source/destination formula matches exactly most days but not every day for reasons not yet
-understood — see `references/queries.sql` comment — so treat any mismatch as a note, not a fault.)
-Report it as one line at the end of the Slack message:
+- **Revenue** (`revenue_reconciliation`): source `GDM.PERFORMANCE.GDM_SES_PPC_PPL` vs cube
+  `REVENUE`, per day. Verified to match to the dollar across the window.
+- **Spend** (`spend_reconciliation`): source-of-truth `SPEND_RECONCILIATION.SOT_SPEND` vs cube
+  `SPEND`, per day, **joined on source** so it's like-for-like (the SOT table only tracks the
+  paid-media engines; the cube's spend also carries Partner/Other). Verified to match when
+  scoped this way; a small gap on the most recent day is normal partial-landing lag.
 
-- Exact match: `Revenue vs. source: ✅ exact match ($<destination_revenue>)`
-- Mismatch: `Revenue vs. source: <indicator> source $<ppc+ppl> vs. destination $<destination_revenue> (off by $<diff>, <pct>%)`
-  where `<indicator>` is 🟢 if `<pct>` < 10, 🟡 if 10–15, 🔴 if > 15
+Both are informational only — they do NOT change the ✅ / ⏳ / 🚨 header, do NOT add an on-call
+@-mention on their own, and are NOT pass/fail checks. (Source vs. destination can diverge on a
+given day for reasons not always understood — treat any mismatch as a note, not a fault.) Per
+day, classify by `|pct|`: 🟢 < 10, 🟡 10–15, 🔴 > 15. Report each as a **one-line summary** at
+the end of the Slack message (don't paste 60 rows):
+
+- All clean: `Revenue vs. source (60d): ✅ all days within 10%` (same shape for spend)
+- Otherwise: `Revenue vs. source (60d): 🔴 3/61 days off >10% — worst <date> <pct>% (src $<x> vs dest $<y>)`
+  listing at most the 2–3 worst days.
+
+To widen the window toward the full fiscal year later, change the `-60` in both queries.
+
+### Step 4.5 — Per-source spend check (HELD — pending Shubham)
+
+Laurent flagged that a bare "spend > 0" won't catch one engine (e.g. Bing) dying while another
+(Google) keeps the total positive, and that D-001 is the right home because it carries the
+`SOURCE` dimension. The `spend_by_source` block in `references/queries.sql` sketches the check
+but is intentionally **not wired in**: it needs agreement (with Shubham) on which sources are
+"must-be-nonzero daily" vs. intermittent (Quora/Reddit/DV360 are sparse and would false-alarm).
+Do not gate or report on it until that's settled.
 
 ### Step 5 — Determine on-call
 
@@ -143,9 +166,9 @@ either way. Tag the on-call person with `<@USERID>`.
 
 Pick the header from three states:
 
-- `:white_check_mark: All checks passed` — normal same-day run (`CYCLE_DATE` = today), all six max dates = `EXPECTED_MAX`, both tasks `SUCCEEDED`.
+- `:white_check_mark: All checks passed` — normal same-day run (`CYCLE_DATE` = today), all six slices fresh (`max_date` = `EXPECTED_MAX`) with non-zero revenue and spend, both tasks `SUCCEEDED`.
 - `:hourglass_flowing_sand: Today's cycle pending — last cycle healthy` — today's refresh hasn't run yet (`CYCLE_DATE` < today) but everything matches `EXPECTED_MAX` and no task run has failed. This is the honest "not a problem, just early" state; keep it low-key (no @-mention needed, or mention without alarm).
-- `:rotating_light: FAILURES DETECTED` — any max date differs from `EXPECTED_MAX`, or any task's latest run is not `SUCCEEDED`. This is the one that must reach on-call.
+- `:rotating_light: FAILURES DETECTED` — any slice is stale (`max_date` ≠ `EXPECTED_MAX`) or has zero revenue/spend on its max date, or any task's latest run is not `SUCCEEDED`. This is the one that must reach on-call. (The day-by-day source reconciliations in Step 4 are informational and never trigger this state.)
 
 Use this layout — task states go **first** (they're the primary signal), then the max-date table:
 
@@ -157,17 +180,18 @@ Tasks (latest run):
   D001_PERFORMANCE_CUBE_REFRESH  ·  <SUCCEEDED ✅ | STATE ❌>
   MDD_CAMPAIGN_REFERENCE_INSERT  ·  <SUCCEEDED ✅ | STATE ❌>
 
-Max-date checks:
-# | Check                  | Max Date     | Status
-1 | Overall                | <date>       | ✅ / ❌
-2 | Brand = Capterra       | <date>       | ✅ / ❌
-3 | Brand = GetApp         | <date>       | ✅ / ❌
-4 | Brand = Software Advice| <date>       | ✅ / ❌
-5 | Monetization = PPC     | <date>       | ✅ / ❌
-6 | Monetization = PPL     | <date>       | ✅ / ❌
+Max-date checks (date fresh + revenue>0 + spend>0):
+# | Check                  | Max Date  | Rev   | Spend | Status
+1 | Overall                | <date>    | >0?   | >0?   | ✅ / ❌
+2 | Brand = Capterra       | <date>    | >0?   | >0?   | ✅ / ❌
+3 | Brand = GetApp         | <date>    | >0?   | >0?   | ✅ / ❌
+4 | Brand = Software Advice| <date>    | >0?   | >0?   | ✅ / ❌
+5 | Monetization = PPC     | <date>    | >0?   | >0?   | ✅ / ❌
+6 | Monetization = PPL     | <date>    | >0?   | >0?   | ✅ / ❌
 
-<if any failure: one line per failing item with the actual state/date and any error message>
-Revenue vs. source: <exact match, or the off-by line from Step 4>
+<if any failure: one line per failing item — stale date or zero value — with the actual numbers>
+Revenue vs. source (60d): <one-line summary from Step 4>
+Spend vs. source (60d): <one-line summary from Step 4>
 Ref: DMABGS-3270
 ```
 
