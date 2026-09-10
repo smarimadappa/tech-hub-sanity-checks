@@ -1,5 +1,18 @@
 # Changelog
 
+## d033-sanity-check
+- **0.1.0** — Initial release: D-033 BX Self-Service Tool daily sanity check (DMABGS-3271).
+  Verifies the two Snowflake tasks (`D033_BX_SELF_SERVICE_TOOL_DELETE_ST` +
+  `..._INSERT_ST`) succeeded and the output table
+  `BUSINESS_ANALYTICS.BX_ANALYTICS.D033_BX_SELF_SERVICE_TOOL_ST` is fresh
+  (`MAX(DATE_UTC)` = yesterday UTC). Adds a value > 0 guard on the max date: overall
+  PPC and PPL revenue > 0, plus each brand (Capterra, GetApp, Software Advice) with
+  combined revenue and sessions > 0 (GetApp is PPC-only, so no per-brand PPL floor).
+  Revenue reconciliation vs. `GDM.PERFORMANCE.GDM_SES_PPC_PPL` (brand_id 1/2/3 =
+  Capterra/GetApp/Software Advice) is reported PPC and PPL separately, informational
+  only — PPC ties to ~0.06%, PPL diverges by attribution and never gates. Same Slack
+  channel + on-call rotation as d000/d001/d009.
+
 ## d001-sanity-check
 - **0.5.0** — Post-demo feedback (Laurent). Max-date checks now also assert **value > 0**:
   each slice (overall + 3 brands + PPC/PPL) must have non-zero `REVENUE` **and** `SPEND` on its

@@ -16,6 +16,11 @@
       "name": "d009-sanity-check",
       "source": "./plugins/d009-sanity-check",
       "description": "Daily D-009 Site Performance data-pipeline sanity check: verify Snowflake tasks + output table freshness, post pass/fail to Slack."
+    },
+    {
+      "name": "d033-sanity-check",
+      "source": "./plugins/d033-sanity-check",
+      "description": "Daily D-033 BX Self-Service Tool data-pipeline sanity check (DMABGS-3271): verify Snowflake tasks + output table freshness/value, post pass/fail to Slack."
     }
   ]
 }
