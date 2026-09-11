@@ -1,6 +1,10 @@
 # Changelog
 
 ## d033-sanity-check
+- **0.1.1** — Documented why D-033 has **no spend reconciliation**: it's a self-service
+  page-performance pipeline (sessions + PPC/PPL revenue per page) with no media-spend column on the
+  destination side, so there's nothing to reconcile spend against (ad spend lives only in D-000 /
+  D-001). Note added to Step 4. No behavior change.
 - **0.1.0** — Initial release: D-033 BX Self-Service Tool daily sanity check (DMABGS-3271).
   Verifies the two Snowflake tasks (`D033_BX_SELF_SERVICE_TOOL_DELETE_ST` +
   `..._INSERT_ST`) succeeded and the output table
@@ -14,6 +18,13 @@
   channel + on-call rotation as d000/d001/d009.
 
 ## d001-sanity-check
+- **0.6.0** — Switched the spend reconciliation source to **`GDM.MARKETING.SPEND_REPORTING`**
+  (`AMOUNT_SPENT`), replacing the old `GDM.PERFORMANCE.SPEND_RECONCILIATION.SOT_SPEND` per-source
+  join. `SPEND_REPORTING` is the granular source of truth (per date × source × channel × brand ×
+  campaign) and carries every engine including Partner, so its **full daily total** equals the
+  cube's `SPEND` to the dollar with no source-scoping — verified 0/61 days off across the window.
+  Simpler and more complete than the old scoped join (which needed per-source alignment and still
+  couldn't match unscoped totals). Still informational-only, one-line 60-day summary.
 - **0.5.0** — Post-demo feedback (Laurent). Max-date checks now also assert **value > 0**:
   each slice (overall + 3 brands + PPC/PPL) must have non-zero `REVENUE` **and** `SPEND` on its
   max date, catching a fresh-but-empty slice a date-only check would pass (both PPC and PPL carry
@@ -31,6 +42,13 @@
 - **0.1.0** — Initial release: D-001 Performance Cube daily sanity check (DMABGS-3270).
 
 ## d000-sanity-check
+- **0.7.0** — **Unblocked the held spend reconciliation** (Laurent's "same but for spend"). It was
+  held because D-000 has no source/engine column and a `CHANNEL_ID` join against the old SOT
+  reconciled poorly (−6% to −45%). New approach: compare `SPEND_ACTUALS` against source spend table
+  **`GDM.MARKETING.SPEND_REPORTING`** (`AMOUNT_SPENT`) on the **full daily total** — no taxonomy
+  join needed. Verified 0/61 days off across the window. Reported day-by-day as a one-line 60-day
+  summary alongside the revenue recon, informational-only, never gates. A per-source spend
+  breakdown stays out of D-000 (no source column) — that remains D-001's job.
 - **0.6.0** — Post-demo feedback (Laurent). Dropped the four unused tasks from the docs —
   `GDM_SPEND_IMPR_CLICKS_DELETE/INSERT` and `GDM_CHANNEL_DASHBOARD_V3_DELETE/INSERT` — leaving
   only `D000_CHANNEL_DASHBOARD` (the SQL already checked only that one). Added a **value > 0**
@@ -61,3 +79,10 @@
 - **0.1.0** — Initial release: D-000 Channel Dashboard daily sanity check (DMABGS-3269).
   Max-date checks degrade gracefully until the companion view ships. Revenue reconciliation
   (ses_ppc_ppl vs data_product) intentionally deferred — source tables not yet specified.
+
+## d009-sanity-check
+- **0.1.5** — Documented why D-009 has **no spend reconciliation**: it's a site-performance
+  pipeline (sessions, pageviews, forms, chats + PPC/PPL revenue) with no media-spend column on the
+  destination side (`BUDGET_SELECTED` in the FORMS table is a lead's self-reported budget range,
+  not ad spend), so there's nothing to reconcile spend against — ad spend lives only in D-000 /
+  D-001. Note added to Step 4. No behavior change.

@@ -150,6 +150,12 @@ two lines at the end of the Slack message:
 where `<indicator>` is 🟢 if `<pct>` < 10, 🟡 if 10–15, 🔴 if > 15, and `✅ exact
 match` when they tie. PPL routinely lands 🔴 — that's expected and stays a note.
 
+**No spend reconciliation for D-033** (unlike D-000/D-001, which reconcile spend vs.
+`GDM.MARKETING.SPEND_REPORTING`): D-033 is a *self-service page-performance* pipeline — its output
+table `D033_BX_SELF_SERVICE_TOOL_ST` carries sessions and PPC/PPL *revenue* per page, but **no
+media spend**. Ad spend only exists on the acquisition side (D-000 channel dashboard / D-001 cube),
+so there is no destination-side spend column here to reconcile against.
+
 ### Step 5 — Determine on-call
 
 Weekly rotation, weeks start Monday. Pick the person whose week-start is the

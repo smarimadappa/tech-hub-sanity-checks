@@ -87,33 +87,34 @@ ORDER BY day;
 -- ============================================================
 -- spend_reconciliation (informational only — never gates pass/fail)
 -- DAY BY DAY over the same rolling ~2-month window (Laurent, post-demo: "same but for spend").
--- Source of truth: GDM.PERFORMANCE.SPEND_RECONCILIATION.SOT_SPEND (per date × source ×
--- brand/channel). Destination: cube SPEND. We JOIN on source so the comparison is
--- automatically like-for-like — the SOT table only tracks the paid-media sources
--- (Google / Bing / Facebook / LinkedIn / Quora), while the cube's SPEND also carries
--- Partner / Other spend the SOT doesn't. Comparing totals unscoped looks 10–58% off;
--- scoped to the shared sources it matches to the dollar (recent day may lag partially).
+-- Source spend table: GDM.MARKETING.SPEND_REPORTING (AMOUNT_SPENT) — the granular source of
+-- truth, per date × source × channel × brand × campaign, carrying EVERY engine including
+-- Partner. Destination: cube SPEND. Compared on the FULL DAILY TOTAL — no source-scoping
+-- needed: SPEND_REPORTING's daily total equals the cube's SPEND to the dollar (verified
+-- 0/61 days off across the tested window). This replaces the old
+-- GDM.PERFORMANCE.SPEND_RECONCILIATION.SOT_SPEND join, which only tracked the paid-media
+-- engines (Google/Bing/Facebook/LinkedIn/Quora) and so needed a per-source join to match;
+-- SPEND_REPORTING matches unscoped because it includes Partner/Other too.
 -- Replace :expected_max with EXPECTED_MAX from Step 1.
 -- ============================================================
 WITH src AS (
-  SELECT "DATE"::date AS day, SOURCE_SYSTEM_NAME AS src_name, SUM(SOT_SPEND) AS source_spend
-    FROM GDM.PERFORMANCE.SPEND_RECONCILIATION
+  SELECT "DATE"::date AS day, SUM(AMOUNT_SPENT) AS source_spend
+    FROM GDM.MARKETING.SPEND_REPORTING
    WHERE "DATE"::date BETWEEN DATEADD('day', -60, :expected_max) AND :expected_max
-   GROUP BY 1, 2
+   GROUP BY 1
 ), dst AS (
-  SELECT "DATE" AS day, SOURCE AS src_name, SUM(SPEND) AS dest_spend
+  SELECT "DATE" AS day, SUM(SPEND) AS dest_spend
     FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D001_PERFORMANCE_CUBE
    WHERE "DATE" BETWEEN DATEADD('day', -60, :expected_max) AND :expected_max
-   GROUP BY 1, 2
+   GROUP BY 1
 )
 SELECT src.day                                                      AS day,
-       ROUND(SUM(src.source_spend))                                 AS source_spend,
-       ROUND(SUM(dst.dest_spend))                                   AS dest_spend,
-       ROUND(SUM(dst.dest_spend) - SUM(src.source_spend))           AS diff,
-       ROUND(100 * (SUM(dst.dest_spend) - SUM(src.source_spend))
-             / NULLIF(SUM(src.source_spend), 0), 1)                 AS pct
-FROM src LEFT JOIN dst ON src.day = dst.day AND src.src_name = dst.src_name
-GROUP BY src.day
+       ROUND(src.source_spend)                                      AS source_spend,
+       ROUND(dst.dest_spend)                                        AS dest_spend,
+       ROUND(dst.dest_spend - src.source_spend)                     AS diff,
+       ROUND(100 * (dst.dest_spend - src.source_spend)
+             / NULLIF(src.source_spend, 0), 1)                      AS pct
+FROM src LEFT JOIN dst ON src.day = dst.day
 ORDER BY src.day;
 
 -- ============================================================

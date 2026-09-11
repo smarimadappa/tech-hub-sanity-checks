@@ -137,6 +137,13 @@ not a fault.) Report it as one line at the end of the Slack message:
 - Mismatch: `Revenue vs. source: <indicator> source $<ppc+ppl> vs. destination $<destination_revenue> (off by $<diff>, <pct>%)`
   where `<indicator>` is 🟢 if `<pct>` < 10, 🟡 if 10–15, 🔴 if > 15
 
+**No spend reconciliation for D-009** (unlike D-000/D-001, which reconcile spend vs.
+`GDM.MARKETING.SPEND_REPORTING`): D-009 is a *site-performance* pipeline — its output tables
+(`D009_SITE_PERF_PPC/PPL/CHAT/FORMS/PV`) carry sessions, pageviews, forms, chats and PPC/PPL
+*revenue*, but **no media spend** (`BUDGET_SELECTED` in the FORMS table is a lead's self-reported
+budget range, not ad spend). Ad spend only exists on the acquisition side (D-000 channel dashboard
+/ D-001 cube), so there is no destination-side spend column here to reconcile against.
+
 If the `destination_revenue` query errors (column not found on `D009_SITE_PERF_PPL`), run the
 `schema_discovery` query from `references/queries.sql` to confirm the PPL revenue column name,
 substitute it, re-run, and update `references/queries.sql`.

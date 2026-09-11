@@ -92,15 +92,41 @@ FROM src FULL OUTER JOIN dst ON src.day = dst.day
 ORDER BY day;
 
 -- ============================================================
--- spend_reconciliation (POINT 5 — HELD for D-000; do NOT wire in yet)
--- Laurent, post-demo: "same but for spend." In D-001 this is clean because the cube has a
--- SOURCE column, so cube SPEND can be joined to SPEND_RECONCILIATION.SOT_SPEND per source
--- and matches to the dollar. D000_CHANNEL_DASHBOARD has NO source/engine column — only
--- CHANNEL_ID / CHANNEL_GROUPED / BRAND — so it cannot be scoped to the SOT-tracked engines
--- the same way. Joining on CHANNEL_ID instead reconciles poorly (verified: off -6% to -45%
--- day by day, worse on weekends), i.e. D-000's SPEND_ACTUALS is modeled on a different
--- channel taxonomy than the SOT spend table. Shipping that would emit constant noise, so
--- the spend reconciliation is HELD for D-000 pending the right key/attribution (same
--- investigation as D-009's revenue recon). Do not report a D-000 spend-vs-source line until
--- resolved. (The value>0 spend check in max_value_check above is unaffected — that reads
--- D-000's own SPEND_ACTUALS and needs no source join.)
+-- spend_reconciliation (informational only — never gates pass/fail)
+-- Laurent, post-demo: "same but for spend." DAY BY DAY over the same rolling ~2-month window.
+-- Source spend table: GDM.MARKETING.SPEND_REPORTING (AMOUNT_SPENT) — the granular source of
+-- truth, per date × source × channel × brand × campaign, carrying EVERY engine including
+-- Partner. Destination: D000_CHANNEL_DASHBOARD SPEND_ACTUALS (IS_COMPLETE = 1). Compared on the
+-- FULL DAILY TOTAL — no source/channel scoping needed: the daily totals match to the dollar
+-- (verified 0/61 days off across the tested window).
+--
+-- This UNBLOCKS the check that was previously held: the old attempt joined SPEND_REPORTING's
+-- predecessor (GDM.PERFORMANCE.SPEND_RECONCILIATION) on CHANNEL_ID, which reconciled poorly
+-- (off -6% to -45% day by day) because D-000's SPEND_ACTUALS uses a different channel taxonomy
+-- and the SOT lacked Partner/Other. Comparing full daily totals against SPEND_REPORTING sidesteps
+-- the taxonomy mismatch entirely. D000_CHANNEL_DASHBOARD still has no source/engine column, so a
+-- per-source spend breakdown here is not possible — that stays in D-001, which carries SOURCE.
+-- Replace :expected_max with EXPECTED_MAX from Step 1. To widen the window, change -60 below.
+-- ============================================================
+WITH src AS (
+  SELECT "DATE"::date AS day, SUM(AMOUNT_SPENT) AS source_spend
+    FROM GDM.MARKETING.SPEND_REPORTING
+   WHERE "DATE"::date BETWEEN DATEADD('day', -60, :expected_max) AND :expected_max
+   GROUP BY 1
+), dst AS (
+  SELECT "DATE" AS day, SUM(SPEND_ACTUALS) AS dest_spend
+    FROM BUSINESS_ANALYTICS.ANALYTICS_MART.D000_CHANNEL_DASHBOARD
+   WHERE IS_COMPLETE = 1
+     AND "DATE" BETWEEN DATEADD('day', -60, :expected_max) AND :expected_max
+   GROUP BY "DATE"
+)
+SELECT COALESCE(src.day, dst.day)                                   AS day,
+       ROUND(src.source_spend)                                      AS source_spend,
+       ROUND(dst.dest_spend)                                        AS dest_spend,
+       ROUND(dst.dest_spend - src.source_spend)                     AS diff,
+       ROUND(100 * (dst.dest_spend - src.source_spend)
+             / NULLIF(src.source_spend, 0), 1)                      AS pct
+FROM src FULL OUTER JOIN dst ON src.day = dst.day
+ORDER BY day;
+-- (The value>0 spend check in max_value_check above is unaffected — that reads D-000's own
+-- SPEND_ACTUALS and needs no source join.)

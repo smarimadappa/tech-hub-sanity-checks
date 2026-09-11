@@ -42,8 +42,10 @@ Slack channel, same on-call rotation. Post the result even on success so the tea
   are present.
 - **"Today" / "yesterday"** mean the UTC calendar day. This is a flagged assumption — the ticket
   doesn't say explicitly, unlike D-001 which is anchored on IST.
-- **Revenue reconciliation is informational only, not a gate:** verified against real data in
-  `GARTNER_GDM` — the source (`GDM.PERFORMANCE.GDM_SES_PPC_PPL`) vs. destination formula matches
+- **Revenue and spend reconciliations are informational only, not a gate:** verified against real
+  data in `GARTNER_GDM`. Spend uses source `GDM.MARKETING.SPEND_REPORTING` (`AMOUNT_SPENT`) vs.
+  `SPEND_ACTUALS` on the full daily total (0/61 days off). Revenue uses source
+  `GDM.PERFORMANCE.GDM_SES_PPC_PPL` — the source vs. destination formula matches
   exactly on most days but not every day, for reasons not yet understood (checked
   `GDM_CHANNEL_DASHBOARD_CORRECTION_DATA` — no rows for the mismatching date, so that's not it).
   Because of that unexplained variance, it must never gate pass/fail or page on-call — see Step 4.
@@ -205,29 +207,34 @@ Surface the **`new-break-*`** rows in the `Trend check (shadow)` block (Step 6);
 any **`ongoing-*`** rows as a demoted one-line footnote (a channel mid-trend shouldn't
 re-alarm daily). If nothing broke, say so in one line.
 
-### Step 4 — Revenue reconciliation vs. source, day by day (informational only, never gates)
+### Step 4 — Reconciliation vs. source, day by day (informational only, never gates)
 
-Run `revenue_reconciliation` (`references/queries.sql`) with `:expected_max` = `EXPECTED_MAX`.
-It compares source `GDM.PERFORMANCE.GDM_SES_PPC_PPL` vs `D000_CHANNEL_DASHBOARD` `REVENUE_ACTUALS`
-**day by day over a rolling ~2-month window** — Laurent's post-demo ask, since a single-day
-match can hide a mid-window break. Verified to match to the dollar across the window.
+Two reconciliations, both **day by day over a rolling ~2-month window** — Laurent's post-demo
+ask, since a single-day match can hide a mid-window break. Both are in `references/queries.sql`;
+both take `:expected_max` = `EXPECTED_MAX`.
 
-This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT add an on-call
-@-mention on its own, and is NOT a pass/fail check. Per day, classify by `|pct|`: 🟢 < 10,
-🟡 10–15, 🔴 > 15. Report as a **one-line summary** (don't paste ~60 rows):
+- **Revenue** (`revenue_reconciliation`): source `GDM.PERFORMANCE.GDM_SES_PPC_PPL` vs
+  `D000_CHANNEL_DASHBOARD` `REVENUE_ACTUALS` (`IS_COMPLETE = 1`). Verified to match to the dollar
+  across the window.
+- **Spend** (`spend_reconciliation`): source spend table `GDM.MARKETING.SPEND_REPORTING`
+  (`AMOUNT_SPENT`) vs `D000_CHANNEL_DASHBOARD` `SPEND_ACTUALS` (`IS_COMPLETE = 1`), compared on the
+  **full daily total** — no source/channel scoping. Verified: 0/61 days off across the tested
+  window. This is the check that was previously held: the old `CHANNEL_ID` join against the SOT
+  reconciled poorly (−6% to −45%) because D-000 uses a different channel taxonomy and the SOT
+  lacked Partner/Other; comparing full daily totals against `SPEND_REPORTING` (which carries every
+  engine) sidesteps that entirely. D-000 still has no source/engine column, so a per-source spend
+  breakdown isn't possible here — that stays in D-001.
 
-- All clean: `Revenue vs. source (60d): ✅ all days within 10%`
+Both are informational only — they do NOT change the ✅ / ⏳ / 🚨 header, do NOT add an on-call
+@-mention on their own, and are NOT pass/fail checks. Per day, classify by `|pct|`: 🟢 < 10,
+🟡 10–15, 🔴 > 15. Report each as a **one-line summary** (don't paste ~60 rows):
+
+- All clean: `Revenue vs. source (60d): ✅ all days within 10%` (same shape for spend)
 - Otherwise: `Revenue vs. source (60d): 🔴 N/61 days off >10% — worst <date> <pct>% (src $<x> vs dest $<y>)`,
   listing at most the 2–3 worst days.
 
-To widen the window toward the full fiscal year later, change the `-60` in the query.
-
-**Spend reconciliation is HELD for D-000** (Laurent's "same but for spend"): D-000 has no
-source/engine column, so its `SPEND_ACTUALS` can't be scoped to the source-of-truth spend table
-the way D-001's cube can (a `CHANNEL_ID` join reconciles poorly, off −6% to −45% day by day).
-Shipping it would emit constant noise, so it waits for the right key/attribution — see the
-`spend_reconciliation` note in `references/queries.sql`. The Step 3.1 spend>0 value check is
-unaffected (it reads D-000's own `SPEND_ACTUALS`, no source join).
+To widen the window toward the full fiscal year later, change the `-60` in both queries. The
+Step 3.1 spend>0 value check is unaffected (it reads D-000's own `SPEND_ACTUALS`, no source join).
 
 ### Step 5 — Determine on-call
 
@@ -286,6 +293,7 @@ Value>0 checks (revenue & spend on max date):
 
 <if any failure: one line per failing item — stale date or zero value — with the actual numbers>
 Revenue vs. source (60d): <one-line summary from Step 4>
+Spend vs. source (60d): <one-line summary from Step 4>
 Trend check (shadow): <✅ no new breaks | ⚠️ N new break(s): "<channel> <measure> <▲/▼> <today> vs ~<median> same-weekday median (<pct>%)" per new-break row | 🇺🇸 holiday — suppressed>
   <if any ongoing-* rows: "…plus M ongoing trend(s): <channel> <measure> <▲/▼>" on one demoted line>
 Ref: DMABGS-3269
@@ -300,8 +308,8 @@ alarm on-call. Keep the message compact; only expand failing items with detail.
 - This is read-only against Snowflake — it never writes to the warehouse.
 - If a check legitimately lags (e.g. a known weekend delay), that will show as a failure;
   mention it in the summary rather than hiding it, so a human can judge.
-- Revenue reconciliation (Step 4) is informational only and never gates pass/fail — see
-  "Environment facts" above.
+- Revenue and spend reconciliations (Step 4) are informational only and never gate pass/fail —
+  see "Environment facts" above.
 - The trend/anomaly check (Step 3.5) is **shadow mode**: informational only, never gates,
   never pings on-call. It's meant to run for a tuning week before any case is promoted to a
   real gate. Thresholds, the baseline window, the absolute floors, and the new-break/ongoing

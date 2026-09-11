@@ -125,10 +125,13 @@ day — Laurent's post-demo ask: a single-day match can hide a mid-window break)
 
 - **Revenue** (`revenue_reconciliation`): source `GDM.PERFORMANCE.GDM_SES_PPC_PPL` vs cube
   `REVENUE`, per day. Verified to match to the dollar across the window.
-- **Spend** (`spend_reconciliation`): source-of-truth `SPEND_RECONCILIATION.SOT_SPEND` vs cube
-  `SPEND`, per day, **joined on source** so it's like-for-like (the SOT table only tracks the
-  paid-media engines; the cube's spend also carries Partner/Other). Verified to match when
-  scoped this way; a small gap on the most recent day is normal partial-landing lag.
+- **Spend** (`spend_reconciliation`): source spend table `GDM.MARKETING.SPEND_REPORTING`
+  (`AMOUNT_SPENT`) vs cube `SPEND`, per day, compared on the **full daily total** — no
+  source-scoping needed. `SPEND_REPORTING` is the granular source of truth (per date × source ×
+  channel × brand × campaign) and carries every engine including Partner, so its daily total
+  equals the cube's `SPEND` to the dollar. Verified: 0/61 days off across the tested window.
+  (Replaces the old `SPEND_RECONCILIATION.SOT_SPEND` per-source join, which only tracked the
+  paid-media engines and needed scoping to match.)
 
 Both are informational only — they do NOT change the ✅ / ⏳ / 🚨 header, do NOT add an on-call
 @-mention on their own, and are NOT pass/fail checks. (Source vs. destination can diverge on a
