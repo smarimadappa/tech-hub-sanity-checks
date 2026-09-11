@@ -18,6 +18,14 @@
   channel + on-call rotation as d000/d001/d009.
 
 ## d001-sanity-check
+- **0.7.0** — Promoted the previously-held per-source spend check to a **real gating check**
+  (Step 4.5), scoped to the two always-on paid-search engines: **Google and Bing must each have
+  `SPEND` > 0 on `EXPECTED_MAX`**. Catches one engine dying (e.g. Bing → 0) while another keeps
+  the overall total positive — a case the slice-level spend > 0 checks miss. A zero/null for
+  either now flips the header to `FAILURES DETECTED` and pages on-call, and the per-source line is
+  shown in the Slack summary. Other sources (Facebook/LinkedIn/Partner/Quora/Reddit/DV360) stay
+  out for now — several are intermittent and would false-alarm; widen only after confirming with
+  Shubham. Wires in the `spend_by_source` query that 0.5.0 sketched.
 - **0.6.0** — Switched the spend reconciliation source to **`GDM.MARKETING.SPEND_REPORTING`**
   (`AMOUNT_SPENT`), replacing the old `GDM.PERFORMANCE.SPEND_RECONCILIATION.SOT_SPEND` per-source
   join. `SPEND_REPORTING` is the granular source of truth (per date × source × channel × brand ×

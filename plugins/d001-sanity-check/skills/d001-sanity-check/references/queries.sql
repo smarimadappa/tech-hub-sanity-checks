@@ -118,19 +118,25 @@ FROM src LEFT JOIN dst ON src.day = dst.day
 ORDER BY src.day;
 
 -- ============================================================
--- spend_by_source (POINT 3 — HELD pending confirmation with Shubham; do NOT wire in yet)
+-- spend_by_source (GATING — per-source spend > 0 on the max date)
 -- Laurent, post-demo: a bare "spend > 0" won't catch one engine dying while another is
--- healthy (e.g. Bing fails but Google keeps total spend > 0). The cube HAS the source
--- dimension to catch this — SOURCE column, values include: Google, Bing, Facebook,
--- LinkedIn, Partner, Other, Quora, Reddit, DV360, AI. Intended shape below: per-source
--- spend on the max date, so a dead engine surfaces as spend = 0 for that source while
--- others are fine. Held because (a) Laurent wanted to sanity-check the design with Shubham
--- and (b) we still need to agree which sources are "must-be-nonzero daily" vs intermittent
--- (Quora/Reddit/DV360 are sparse and would false-alarm). Once agreed, promote this to a
--- real check. Reference query:
---   SELECT SOURCE,
---          MAX("DATE") AS max_date,
---          ROUND(SUM(CASE WHEN "DATE" = :expected_max THEN SPEND END)) AS spend_on_max
---   FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D001_PERFORMANCE_CUBE
---   WHERE SOURCE IN ('Google','Bing','Facebook','LinkedIn')   -- the always-on engines, TBC with Shubham
---   GROUP BY SOURCE ORDER BY SOURCE;
+-- healthy (e.g. Bing fails but Google keeps total spend > 0). The cube HAS the SOURCE
+-- dimension to catch this. Scope: the two always-on paid-search engines, Google and Bing —
+-- both carry spend every day, so spend = 0 (or no row) for either on the max date is a real
+-- failure. Other sources (Facebook, LinkedIn, Partner, Quora, Reddit, DV360, …) are left out
+-- on purpose: several are intermittent and would false-alarm; revisit with Shubham before
+-- widening this list. Returns one row per required source with its overall max date and its
+-- spend on :expected_max (NULL → no data that day). Replace :expected_max with EXPECTED_MAX
+-- from Step 1. A source FAILS if spend_on_max is NULL or <= 0.
+-- ============================================================
+WITH req AS (
+  SELECT column1 AS source FROM VALUES ('Google'), ('Bing')
+)
+SELECT req.source                                                     AS source,
+       MAX(c."DATE")                                                  AS max_date,
+       ROUND(SUM(CASE WHEN c."DATE" = :expected_max THEN c.SPEND END)) AS spend_on_max
+FROM req
+LEFT JOIN BUSINESS_ANALYTICS.BX_ANALYTICS.D001_PERFORMANCE_CUBE c
+       ON c.SOURCE = req.source
+GROUP BY req.source
+ORDER BY req.source;

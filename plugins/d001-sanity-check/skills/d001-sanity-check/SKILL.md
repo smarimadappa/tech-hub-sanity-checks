@@ -145,14 +145,21 @@ the end of the Slack message (don't paste 60 rows):
 
 To widen the window toward the full fiscal year later, change the `-60` in both queries.
 
-### Step 4.5 — Per-source spend check (HELD — pending Shubham)
+### Step 4.5 — Per-source spend check (freshness-day spend > 0 per engine — GATES pass/fail)
 
-Laurent flagged that a bare "spend > 0" won't catch one engine (e.g. Bing) dying while another
-(Google) keeps the total positive, and that D-001 is the right home because it carries the
-`SOURCE` dimension. The `spend_by_source` block in `references/queries.sql` sketches the check
-but is intentionally **not wired in**: it needs agreement (with Shubham) on which sources are
-"must-be-nonzero daily" vs. intermittent (Quora/Reddit/DV360 are sparse and would false-alarm).
-Do not gate or report on it until that's settled.
+A bare "spend > 0" on the overall/brand/monetization slices won't catch one engine dying while
+another keeps the total positive (e.g. Bing spend → 0 but Google keeps overall spend > 0).
+D-001 carries the `SOURCE` dimension, so we check the always-on paid-search engines directly.
+
+Run the `spend_by_source` query in `references/queries.sql` (takes `:expected_max` =
+`EXPECTED_MAX`). It returns one row per required source — **Google** and **Bing** — with its
+`spend_on_max` on `EXPECTED_MAX`. A source **fails** if `spend_on_max` is ≤ 0 or null (no data
+that day). Record which engine and the value.
+
+Scope is deliberately just Google and Bing: both genuinely carry spend every day, so a zero is a
+real signal. Other sources (Facebook, LinkedIn, Partner, Quora, Reddit, DV360, …) are excluded
+on purpose — several are intermittent and would false-alarm; revisit with Shubham before adding
+any. This check **gates** the header the same way the max-date checks do.
 
 ### Step 5 — Determine on-call
 
@@ -169,9 +176,9 @@ either way. Tag the on-call person with `<@USERID>`.
 
 Pick the header from three states:
 
-- `:white_check_mark: All checks passed` — normal same-day run (`CYCLE_DATE` = today), all six slices fresh (`max_date` = `EXPECTED_MAX`) with non-zero revenue and spend, both tasks `SUCCEEDED`.
+- `:white_check_mark: All checks passed` — normal same-day run (`CYCLE_DATE` = today), all six slices fresh (`max_date` = `EXPECTED_MAX`) with non-zero revenue and spend, Google and Bing spend both > 0 on `EXPECTED_MAX` (Step 4.5), both tasks `SUCCEEDED`.
 - `:hourglass_flowing_sand: Today's cycle pending — last cycle healthy` — today's refresh hasn't run yet (`CYCLE_DATE` < today) but everything matches `EXPECTED_MAX` and no task run has failed. This is the honest "not a problem, just early" state; keep it low-key (no @-mention needed, or mention without alarm).
-- `:rotating_light: FAILURES DETECTED` — any slice is stale (`max_date` ≠ `EXPECTED_MAX`) or has zero revenue/spend on its max date, or any task's latest run is not `SUCCEEDED`. This is the one that must reach on-call. (The day-by-day source reconciliations in Step 4 are informational and never trigger this state.)
+- `:rotating_light: FAILURES DETECTED` — any slice is stale (`max_date` ≠ `EXPECTED_MAX`) or has zero revenue/spend on its max date, Google or Bing spend is ≤ 0 on `EXPECTED_MAX` (Step 4.5), or any task's latest run is not `SUCCEEDED`. This is the one that must reach on-call. (The day-by-day source reconciliations in Step 4 are informational and never trigger this state.)
 
 Use this layout — task states go **first** (they're the primary signal), then the max-date table:
 
@@ -192,7 +199,9 @@ Max-date checks (date fresh + revenue>0 + spend>0):
 5 | Monetization = PPC     | <date>    | >0?   | >0?   | ✅ / ❌
 6 | Monetization = PPL     | <date>    | >0?   | >0?   | ✅ / ❌
 
-<if any failure: one line per failing item — stale date or zero value — with the actual numbers>
+Per-source spend on <EXPECTED_MAX> (>0):  Google <$spend ✅ | ❌>  ·  Bing <$spend ✅ | ❌>
+
+<if any failure: one line per failing item — stale date, zero value, or dead engine — with the actual numbers>
 Revenue vs. source (60d): <one-line summary from Step 4>
 Spend vs. source (60d): <one-line summary from Step 4>
 Ref: DMABGS-3270
