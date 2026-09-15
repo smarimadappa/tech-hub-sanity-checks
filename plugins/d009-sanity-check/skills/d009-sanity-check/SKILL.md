@@ -122,20 +122,33 @@ Run the `max_dates` query (`references/queries.sql`). Compare each of the five
 returned dates to `EXPECTED_MAX`. Record any that differ (show the actual value,
 or "no data" if null).
 
-### Step 4 — Revenue reconciliation vs. source (informational only)
+### Step 4 — Revenue reconciliation vs. source, day by day (informational only)
 
-Run `revenue_reconciliation` plus `revenue_reconciliation_destination` (both in
-`references/queries.sql`) for `EXPECTED_MAX`. Sum `ppc_revenue + ppl_revenue` (treat NULL as 0)
-and compare to `destination_revenue`.
+Run `revenue_reconciliation` (in `references/queries.sql`, takes `:expected_max` =
+`EXPECTED_MAX`). It compares **PPC+PPL unified into one revenue total per day**, **day by day
+over a rolling ~2-month window** (not just the last day — a single-day match can hide a
+mid-window break), matching how D-000/D-001/D-033 report.
+
+Source `GDM.PERFORMANCE.GDM_SES_PPC_PPL` (site_property_id 1-4) vs the two destination tables,
+using the columns confirmed to reconcile to the dollar: **PPC by click date via
+`D009_SITE_PERF_PPC.PPC_CLICK_AMOUNT`** (not `REVENUE_WO_SESSION`, a partial subset that does
+not reconcile), and **PPL by _qual_ date via `D009_SITE_PERF_PPL.REVENUE`** (D-009 attributes
+PPL by qual date — the opposite of D-033's conversion-date basis).
 
 This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT add an
 on-call @-mention on its own, and is NOT itself a pass/fail check. (Source vs. destination may
-not match exactly every day for reasons not yet fully understood — treat any mismatch as a note,
-not a fault.) Report it as one line at the end of the Slack message:
+diverge on a given day for reasons not always understood — treat any mismatch as a note,
+not a fault.) Per day, classify by `|pct|`: 🟢 < 10, 🟡 10–15, 🔴 > 15. Report it as a
+**one-line summary** at the end of the Slack message (don't paste 60 rows):
 
-- Exact match: `Revenue vs. source: ✅ exact match ($<destination_revenue>)`
-- Mismatch: `Revenue vs. source: <indicator> source $<ppc+ppl> vs. destination $<destination_revenue> (off by $<diff>, <pct>%)`
-  where `<indicator>` is 🟢 if `<pct>` < 10, 🟡 if 10–15, 🔴 if > 15
+- All clean: `Revenue vs. source (60d): ✅ all days within 10%`
+- Otherwise: `Revenue vs. source (60d): 🔴 3/61 days off >10% — worst <date> <pct>% (src $<x> vs dest $<y>)`
+  listing at most the 2–3 worst days.
+
+Note: `D009_SITE_PERF_PPL` can lag `D009_SITE_PERF_PPC` by weeks. When it does, the recent days
+will show as off (source has PPL, destination doesn't) — that's the same freshness gap the
+max-dates check (Step 3) already gates on, surfacing here as a note. To widen the window later,
+change the `-60` in the query.
 
 **No spend reconciliation for D-009** (unlike D-000/D-001, which reconcile spend vs.
 `GDM.MARKETING.SPEND_REPORTING`): D-009 is a *site-performance* pipeline — its output tables
@@ -144,9 +157,9 @@ not a fault.) Report it as one line at the end of the Slack message:
 budget range, not ad spend). Ad spend only exists on the acquisition side (D-000 channel dashboard
 / D-001 cube), so there is no destination-side spend column here to reconcile against.
 
-If the `destination_revenue` query errors (column not found on `D009_SITE_PERF_PPL`), run the
-`schema_discovery` query from `references/queries.sql` to confirm the PPL revenue column name,
-substitute it, re-run, and update `references/queries.sql`.
+If the `revenue_reconciliation` query errors (a destination column not found), run the
+`schema_discovery` query from `references/queries.sql` to confirm the revenue column names,
+substitute them, re-run, and update `references/queries.sql`.
 
 ### Step 5 — Determine on-call
 
@@ -197,7 +210,7 @@ Max-date checks:
 5 | Pageviews (PV) | <date>       | ✅ / ❌
 
 <if any failure: one line per failing item with the actual state/date and any error message>
-Revenue vs. source: <exact match, or the off-by line from Step 4>
+Revenue vs. source (60d): <one-line summary from Step 4>
 ```
 
 The header carries the state emoji, so no separate "test" framing is needed —
@@ -210,6 +223,9 @@ on-call. Keep the message compact; only expand failing items with detail.
 - If a check legitimately lags (e.g. a known weekend delay), that will show as a
   failure; mention it in the summary rather than hiding it, so a human can judge.
 - Revenue reconciliation (Step 4) is informational only and never gates pass/fail.
+  It unifies PPC+PPL day-by-day over a 60-day window (PPC by click date, PPL by qual
+  date) — verified to reconcile to the dollar, so a run of off-days is a real signal
+  (often the `D009_SITE_PERF_PPL` table lagging), not expected noise.
 - Exact SQL lives in `references/queries.sql`; the rotation table in
   `references/rotation.md`. Read those when running — they hold the authoritative
   task names, column names, and schedule.

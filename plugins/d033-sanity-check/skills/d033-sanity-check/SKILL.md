@@ -133,22 +133,32 @@ Run the `max_date` query, then the `value_check` query (both in
   brand rows must have `total_revenue` > 0 and `sessions` > 0. Record any that
   fail (brand, actual values).
 
-### Step 4 — Revenue reconciliation vs. source (informational only)
+### Step 4 — Revenue reconciliation vs. source, day by day (informational only)
 
-Run `revenue_reconciliation_destination` and `revenue_reconciliation_source`
-(both in `references/queries.sql`) for `EXPECTED_MAX`. Report PPC and PPL
-**separately** — for D-033 the PPC side reconciles almost exactly while PPL by
-qual date runs higher than the destination (different attribution basis).
+Run `revenue_reconciliation` (in `references/queries.sql`, takes `:expected_max` =
+`EXPECTED_MAX`). It compares **PPC+PPL unified into one revenue total per day**,
+**day by day over a rolling ~2-month window** (not just the last day — a single-day
+match can hide a mid-window break), matching how D-000/D-001/D-009 report.
+
+Source `GDM.PERFORMANCE.GDM_SES_PPC_PPL` (BRAND_ID 1/2/3) vs destination
+`PAGE_PPC_REVENUE + PAGE_PPL_REVENUE`. Attribution basis is verified to the dollar
+day-by-day: **PPC by click date, PPL by _conversion_ date** (the destination attributes
+`PAGE_PPL_REVENUE` by conversion date — qual date is materially off day-by-day and only
+reconciles in aggregate, so don't switch it back). Verified 2026-09-13: 0/61 days off
+>10%, totals within -0.3%.
 
 This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT add
-an on-call @-mention on its own, and is NOT itself a pass/fail check. Report it as
-two lines at the end of the Slack message:
+an on-call @-mention on its own, and is NOT itself a pass/fail check. (Source vs.
+destination can diverge on a given day for reasons not always understood — treat any
+mismatch as a note, not a fault.) Per day, classify by `|pct|`: 🟢 < 10, 🟡 10–15,
+🔴 > 15. Report it as a **one-line summary** at the end of the Slack message (don't
+paste 60 rows):
 
-- `Revenue vs. source — PPC: <indicator> source $<src_ppc> vs. destination $<dest_ppc> (off by $<diff>, <pct>%)`
-- `Revenue vs. source — PPL: <indicator> source $<src_ppl> vs. destination $<dest_ppl> (off by $<diff>, <pct>%)`
+- All clean: `Revenue vs. source (60d): ✅ all days within 10%`
+- Otherwise: `Revenue vs. source (60d): 🔴 3/61 days off >10% — worst <date> <pct>% (src $<x> vs dest $<y>)`
+  listing at most the 2–3 worst days.
 
-where `<indicator>` is 🟢 if `<pct>` < 10, 🟡 if 10–15, 🔴 if > 15, and `✅ exact
-match` when they tie. PPL routinely lands 🔴 — that's expected and stays a note.
+To widen the window toward the full fiscal year later, change the `-60` in the query.
 
 **No spend reconciliation for D-033** (unlike D-000/D-001, which reconcile spend vs.
 `GDM.MARKETING.SPEND_REPORTING`): D-033 is a *self-service page-performance* pipeline — its output
@@ -203,8 +213,7 @@ Freshness + value (on <EXPECTED_MAX>):
   Software Advice    ·  $<total>  ·  <sessions> sess  ✅ / ❌
 
 <if any failure: one line per failing item with the actual state/date/value and any error message>
-Revenue vs. source — PPC: <off-by line from Step 4>
-Revenue vs. source — PPL: <off-by line from Step 4>
+Revenue vs. source (60d): <one-line summary from Step 4>
 ```
 
 The header carries the state emoji, so no separate "test" framing is needed —
@@ -216,8 +225,10 @@ on-call. Keep the message compact; only expand failing items with detail.
 - This is read-only against Snowflake — it never writes to the warehouse.
 - If a check legitimately lags (e.g. a known weekend delay), that will show as a
   failure; mention it in the summary rather than hiding it, so a human can judge.
-- Revenue reconciliation (Step 4) is informational only and never gates pass/fail;
-  the PPL leg is known to diverge from source and should not alarm anyone.
+- Revenue reconciliation (Step 4) is informational only and never gates pass/fail.
+  It unifies PPC+PPL day-by-day over a 60-day window (PPC by click date, PPL by
+  conversion date) — verified to reconcile to the dollar, so a run of off-days is a
+  real signal worth a look, not expected noise.
 - Exact SQL lives in `references/queries.sql`; the rotation table in
   `references/rotation.md`. Read those when running — they hold the authoritative
   task names, column names, brand→id mapping, and schedule.

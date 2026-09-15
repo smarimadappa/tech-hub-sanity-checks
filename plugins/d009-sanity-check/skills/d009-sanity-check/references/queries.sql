@@ -38,21 +38,59 @@ SELECT
 
 -- ============================================================
 -- revenue_reconciliation (informational only — never gates pass/fail)
--- Source: GDM.PERFORMANCE.GDM_SES_PPC_PPL (account GARTNER_GDM).
--- PPL only counts qualified+accepted leads, attributed to qual date — don't simplify.
--- Replace :expected_max with EXPECTED_MAX from Step 1.
+-- DAY BY DAY over a rolling ~2-month window ending :expected_max, PPC+PPL UNIFIED
+-- into a single revenue total per day (matching D-000/D-001/D-033). A single-day
+-- match can hide a mid-window break, so compare the whole window.
+--
+-- Source: GDM.PERFORMANCE.GDM_SES_PPC_PPL (account GARTNER_GDM), site_property_id 1-4.
+-- Attribution basis — verified to the dollar day-by-day against the destination on
+-- every day the destination carries data:
+--   PPC → click date (PPC_CLICK_TIMESTAMP_UTC), amount PPC_CLICK_AMOUNT.
+--   PPL → QUAL date (PPL_QUAL_TIMESTAMP_UTC), qualified + accepted leads only,
+--         amount PPL_LEAD_AMOUNT.  (D-009's PPL destination attributes REVENUE by
+--         qual date — conversion date is off here, the opposite of D-033. Don't swap.)
+-- Destination tables (column names differ, confirmed from schema):
+--   D009_SITE_PERF_PPC → date DATE_UTC; PPC revenue is PPC_CLICK_AMOUNT (NOT
+--     REVENUE_WO_SESSION — that column is a partial subset and does not reconcile).
+--   D009_SITE_PERF_PPL → date DATE (not DATE_UTC); PPL revenue is REVENUE.
+-- Verified: PPC reconciles 0/61 days off; PPL reconciles to the dollar on every day
+-- the destination has data. NOTE the D009_SITE_PERF_PPL table can lag the PPC table
+-- by weeks — when it does, this recon will flag the missing PPL days. That is a real
+-- freshness gap, already gated by the max_dates check (Step 3); here it is only a note.
+-- Replace :expected_max with EXPECTED_MAX from Step 1. To widen the window, change -60.
 -- ============================================================
-SELECT
-  SUM(CASE WHEN PPC_CLICK_TIMESTAMP_UTC::date = :expected_max THEN PPC_CLICK_AMOUNT END)
-    AS ppc_revenue,
-  SUM(CASE WHEN PPL_QUAL_TIMESTAMP_UTC::date = :expected_max
-             AND PPL_QUAL = 1 AND PPL_LEAD_STATUS = 'accepted'
-           THEN PPL_LEAD_AMOUNT END)
-    AS ppl_revenue
-FROM GDM.PERFORMANCE.GDM_SES_PPC_PPL
-WHERE DATE_UTC BETWEEN DATEADD('day', -3, :expected_max) AND DATEADD('day', 3, :expected_max)
-  AND is_deleted = 0
-  AND site_property_id IN (1,2,3,4);
+WITH src AS (
+  SELECT day, SUM(rev) AS source_revenue FROM (
+    SELECT PPC_CLICK_TIMESTAMP_UTC::date AS day, PPC_CLICK_AMOUNT AS rev
+      FROM GDM.PERFORMANCE.GDM_SES_PPC_PPL
+     WHERE is_deleted = 0 AND site_property_id IN (1,2,3,4)
+       AND PPC_CLICK_TIMESTAMP_UTC::date BETWEEN DATEADD('day', -60, :expected_max) AND :expected_max
+    UNION ALL
+    SELECT PPL_QUAL_TIMESTAMP_UTC::date, PPL_LEAD_AMOUNT
+      FROM GDM.PERFORMANCE.GDM_SES_PPC_PPL
+     WHERE is_deleted = 0 AND site_property_id IN (1,2,3,4)
+       AND PPL_QUAL = 1 AND PPL_LEAD_STATUS = 'accepted'
+       AND PPL_QUAL_TIMESTAMP_UTC::date BETWEEN DATEADD('day', -60, :expected_max) AND :expected_max
+  ) GROUP BY day
+), dst AS (
+  SELECT day, SUM(rev) AS dest_revenue FROM (
+    SELECT DATE_UTC AS day, PPC_CLICK_AMOUNT AS rev
+      FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPC
+     WHERE DATE_UTC BETWEEN DATEADD('day', -60, :expected_max) AND :expected_max
+    UNION ALL
+    SELECT "DATE" AS day, REVENUE AS rev
+      FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPL
+     WHERE "DATE" BETWEEN DATEADD('day', -60, :expected_max) AND :expected_max
+  ) GROUP BY day
+)
+SELECT COALESCE(src.day, dst.day)                                   AS day,
+       ROUND(src.source_revenue)                                    AS source_revenue,
+       ROUND(dst.dest_revenue)                                      AS dest_revenue,
+       ROUND(dst.dest_revenue - src.source_revenue)                 AS diff,
+       ROUND(100 * (dst.dest_revenue - src.source_revenue)
+             / NULLIF(src.source_revenue, 0), 1)                    AS pct
+FROM src FULL OUTER JOIN dst ON src.day = dst.day
+ORDER BY day;
 
 -- ============================================================
 -- schema_discovery : revenue/amount columns in all D009 output tables.
@@ -69,22 +107,3 @@ WHERE TABLE_SCHEMA = 'BX_ANALYTICS'
         'D009_SITE_PERF_PV')
   AND (COLUMN_NAME ILIKE '%REVENUE%' OR COLUMN_NAME ILIKE '%AMOUNT%')
 ORDER BY TABLE_NAME, COLUMN_NAME;
-
--- ============================================================
--- revenue_reconciliation_destination (D-009)
--- Compare the total against ppc_revenue + ppl_revenue from the source query above.
--- Key column differences confirmed from schema:
---   D009_SITE_PERF_PPC  → date column is DATE_UTC; revenue column is REVENUE_WO_SESSION
---   D009_SITE_PERF_PPL  → date column is DATE (not DATE_UTC, same as max_dates query)
---                          revenue column assumed REVENUE — verify with schema_discovery
--- Replace :expected_max with EXPECTED_MAX from Step 1.
--- ============================================================
-SELECT
-  COALESCE((SELECT SUM(REVENUE_WO_SESSION)
-              FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPC
-             WHERE DATE_UTC = :expected_max), 0)
-  +
-  COALESCE((SELECT SUM(REVENUE)
-              FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D009_SITE_PERF_PPL
-             WHERE DATE    = :expected_max), 0)
-  AS destination_revenue;

@@ -1,6 +1,15 @@
 # Changelog
 
 ## d033-sanity-check
+- **0.2.0** — Reworked the revenue reconciliation to match D-000/D-001/D-009:
+  **PPC+PPL are now unified into one revenue total, reconciled day-by-day over a rolling
+  60-day window** (was a single-day, PPC/PPL-split comparison). Reported as a one-line
+  `Revenue vs. source (60d): ✅ all days within 10%` summary. Fixed the PPL attribution
+  basis — the destination `PAGE_PPL_REVENUE` is attributed by **conversion date**
+  (`PPL_CONV_TIMESTAMP_UTC`), not qual date; with that correction the unified check
+  reconciles to the dollar (verified 2026-09-13: 0/61 days off >10%, totals within
+  -0.3%). Still informational only, never gates. Old `Revenue vs. source — PPC/PPL`
+  two-line output replaced by the single 60d line.
 - **0.1.1** — Documented why D-033 has **no spend reconciliation**: it's a self-service
   page-performance pipeline (sessions + PPC/PPL revenue per page) with no media-spend column on the
   destination side, so there's nothing to reconcile spend against (ad spend lives only in D-000 /
@@ -89,6 +98,16 @@
   (ses_ppc_ppl vs data_product) intentionally deferred — source tables not yet specified.
 
 ## d009-sanity-check
+- **0.2.0** — Reworked the revenue reconciliation to match D-000/D-001/D-033:
+  **PPC+PPL are now unified into one revenue total, reconciled day-by-day over a rolling
+  60-day window** (was a single-day comparison), reported as a one-line
+  `Revenue vs. source (60d): ✅ all days within 10%` summary. Fixed the destination PPC
+  column — the check now reads **`D009_SITE_PERF_PPC.PPC_CLICK_AMOUNT`** instead of
+  `REVENUE_WO_SESSION` (a partial subset that never reconciled); with that fix PPC ties
+  to the dollar (0/61 days off) and PPL (by qual date, `D009_SITE_PERF_PPL.REVENUE`)
+  ties on every day the destination carries data. Surfaces `D009_SITE_PERF_PPL` lag as
+  off-days in the recon note (already gated by the max-dates check). Still informational
+  only, never gates.
 - **0.1.5** — Documented why D-009 has **no spend reconciliation**: it's a site-performance
   pipeline (sessions, pageviews, forms, chats + PPC/PPL revenue) with no media-spend column on the
   destination side (`BUDGET_SELECTED` in the FORMS table is a lead's self-reported budget range,

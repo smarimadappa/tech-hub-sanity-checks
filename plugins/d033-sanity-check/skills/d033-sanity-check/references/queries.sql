@@ -64,40 +64,54 @@ ORDER BY BRAND NULLS LAST;
 -- PPC > 0 / PPL > 0 gate); the three named rows are the per-brand gate.
 
 -- ============================================================
--- revenue_reconciliation_destination (informational only — never gates pass/fail)
--- D-033 destination revenue on EXPECTED_MAX, PPC and PPL reported separately.
--- Replace :expected_max with EXPECTED_MAX from Step 1.
--- ============================================================
-SELECT
-  COALESCE(SUM(PAGE_PPC_REVENUE), 0) AS dest_ppc,
-  COALESCE(SUM(PAGE_PPL_REVENUE), 0) AS dest_ppl
-FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D033_BX_SELF_SERVICE_TOOL_ST
-WHERE DATE_UTC = :expected_max;
-
--- ============================================================
--- revenue_reconciliation_source (informational only — never gates pass/fail)
+-- revenue_reconciliation (informational only — never gates pass/fail)
+-- DAY BY DAY over a rolling ~2-month window ending :expected_max, PPC+PPL UNIFIED
+-- into a single revenue total per day (matching D-000/D-001/D-009). A single-day
+-- match can hide a mid-window break, so compare the whole window.
+--
 -- Source: GDM.PERFORMANCE.GDM_SES_PPC_PPL (account GARTNER_GDM).
 -- Brand mapping confirmed by reconciling against the destination:
 --   BRAND_ID 1 = Capterra, 2 = GetApp, 3 = Software Advice  (the three DM brands).
--- PPC is attributed to click date; PPL only counts qualified + accepted leads,
--- attributed to qual date — don't simplify. Widen DATE_UTC to catch rows whose
--- click/qual date sits near the boundary.
--- Replace :expected_max with EXPECTED_MAX from Step 1.
---
--- Reconciliation reality (verified 2026-09-08): PPC matches the destination almost
--- exactly (~0.06%); PPL by qual date runs materially higher than the destination
--- PPL (attribution basis differs). Report both as notes, never as a gate.
+-- Attribution basis — verified to the dollar day-by-day against the destination
+-- (2026-09-13, 61-day window: 0/61 days off >10%, totals within -0.3%):
+--   PPC → click date (PPC_CLICK_TIMESTAMP_UTC), amount PPC_CLICK_AMOUNT.
+--   PPL → CONVERSION date (PPL_CONV_TIMESTAMP_UTC), qualified + accepted leads only,
+--         amount PPL_LEAD_AMOUNT.  NOT qual date — the D-033 destination attributes
+--         PAGE_PPL_REVENUE by conversion date; qual date is materially off day-by-day
+--         (it only reconciles in aggregate). Don't "simplify" back to qual date.
+-- Destination: D033_BX_SELF_SERVICE_TOOL_ST PAGE_PPC_REVENUE + PAGE_PPL_REVENUE per
+-- DATE_UTC. Use the PAGE_* columns (not LAND_*) to avoid double-counting.
+-- Replace :expected_max with EXPECTED_MAX from Step 1. To widen toward the full
+-- fiscal year later, change the -60 below.
 -- ============================================================
-SELECT
-  SUM(CASE WHEN PPC_CLICK_TIMESTAMP_UTC::date = :expected_max
-           THEN PPC_CLICK_AMOUNT END)                                   AS src_ppc,
-  SUM(CASE WHEN PPL_QUAL_TIMESTAMP_UTC::date = :expected_max
-             AND PPL_QUAL = 1 AND PPL_LEAD_STATUS = 'accepted'
-           THEN PPL_LEAD_AMOUNT END)                                    AS src_ppl
-FROM GDM.PERFORMANCE.GDM_SES_PPC_PPL
-WHERE DATE_UTC BETWEEN DATEADD('day', -3, :expected_max) AND DATEADD('day', 3, :expected_max)
-  AND IS_DELETED = 0
-  AND BRAND_ID IN (1, 2, 3);
+WITH src AS (
+  SELECT day, SUM(rev) AS source_revenue FROM (
+    SELECT PPC_CLICK_TIMESTAMP_UTC::date AS day, PPC_CLICK_AMOUNT AS rev
+      FROM GDM.PERFORMANCE.GDM_SES_PPC_PPL
+     WHERE is_deleted = 0 AND BRAND_ID IN (1, 2, 3)
+       AND PPC_CLICK_TIMESTAMP_UTC::date BETWEEN DATEADD('day', -60, :expected_max) AND :expected_max
+    UNION ALL
+    SELECT PPL_CONV_TIMESTAMP_UTC::date, PPL_LEAD_AMOUNT
+      FROM GDM.PERFORMANCE.GDM_SES_PPC_PPL
+     WHERE is_deleted = 0 AND BRAND_ID IN (1, 2, 3)
+       AND PPL_QUAL = 1 AND PPL_LEAD_STATUS = 'accepted'
+       AND PPL_CONV_TIMESTAMP_UTC::date BETWEEN DATEADD('day', -60, :expected_max) AND :expected_max
+  ) GROUP BY day
+), dst AS (
+  SELECT DATE_UTC AS day,
+         SUM(COALESCE(PAGE_PPC_REVENUE, 0) + COALESCE(PAGE_PPL_REVENUE, 0)) AS dest_revenue
+    FROM BUSINESS_ANALYTICS.BX_ANALYTICS.D033_BX_SELF_SERVICE_TOOL_ST
+   WHERE DATE_UTC BETWEEN DATEADD('day', -60, :expected_max) AND :expected_max
+   GROUP BY DATE_UTC
+)
+SELECT COALESCE(src.day, dst.day)                                   AS day,
+       ROUND(src.source_revenue)                                    AS source_revenue,
+       ROUND(dst.dest_revenue)                                      AS dest_revenue,
+       ROUND(dst.dest_revenue - src.source_revenue)                 AS diff,
+       ROUND(100 * (dst.dest_revenue - src.source_revenue)
+             / NULLIF(src.source_revenue, 0), 1)                    AS pct
+FROM src FULL OUTER JOIN dst ON src.day = dst.day
+ORDER BY day;
 
 -- ============================================================
 -- schema_discovery : columns of the D-033 output table.
