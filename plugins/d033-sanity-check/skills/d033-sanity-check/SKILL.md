@@ -49,8 +49,8 @@ even on success so the team can trust "no news" isn't just a silent failure.
 
 Both under `BUSINESS_ANALYTICS.BX_ANALYTICS`:
 
-- `D033_BX_SELF_SERVICE_TOOL_DELETE_ST` — delete step (clears the reload window)
-- `D033_BX_SELF_SERVICE_TOOL_INSERT_ST` — insert step (reloads the table)
+- `D033_BX_SELF_SERVICE_TOOL_DELETE` — delete step (clears the reload window)
+- `D033_BX_SELF_SERVICE_TOOL_INSERT` — insert step (reloads the table)
 
 They run in sequence (~14:30 UTC / 07:30 America/Los_Angeles). Each one's latest
 non-`SCHEDULED` run must be `SUCCEEDED`.
@@ -107,7 +107,7 @@ note "no change since the last run" instead of re-explaining in full.
 Run the `task_states` query first (`references/queries.sql`, section "task_states")
 and use it to anchor everything:
 
-- Take the latest run of `D033_BX_SELF_SERVICE_TOOL_INSERT_ST`. Its
+- Take the latest run of `D033_BX_SELF_SERVICE_TOOL_INSERT`. Its
   `SCHEDULED_TIME` (UTC) is `CYCLE_DATE` — the day of the most recent pipeline run.
 - `EXPECTED_MAX` = `CYCLE_DATE` − 1. (A run on day D loads data through D−1.)
 - `TODAY_UTC` = today's date in UTC. If `CYCLE_DATE` < `TODAY_UTC`, today's run
@@ -201,8 +201,8 @@ freshness/value table:
 Expected max date: <EXPECTED_MAX>  (pipeline cycle: <CYCLE_DATE>)   ·   On-call: <@oncall>
 
 Tasks (latest run):
-  D033_BX_SELF_SERVICE_TOOL_DELETE_ST  ·  <SUCCEEDED ✅ | STATE ❌>
-  D033_BX_SELF_SERVICE_TOOL_INSERT_ST  ·  <SUCCEEDED ✅ | STATE ❌>
+  D033_BX_SELF_SERVICE_TOOL_DELETE  ·  <SUCCEEDED ✅ | STATE ❌>
+  D033_BX_SELF_SERVICE_TOOL_INSERT  ·  <SUCCEEDED ✅ | STATE ❌>
 
 Freshness + value (on <EXPECTED_MAX>):
   Max DATE_UTC       ·  <date>  ✅ / ❌
