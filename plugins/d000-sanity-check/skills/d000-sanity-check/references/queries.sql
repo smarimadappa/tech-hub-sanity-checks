@@ -53,6 +53,52 @@ GROUP BY slice, mx
 ORDER BY slice;
 
 -- ============================================================
+-- hourly_completeness : deterministic GATING check (Step 3.2). For :expected_max (yesterday
+-- UTC) the two high-volume continuous source streams must have EVERY one of the 24 hours
+-- populated above a low floor. Catches feed interruptions / site downtime / partial-day loads
+-- that a daily value>0 check cannot see. Source: GDM.PERFORMANCE.GDM_SES_PPC_PPL — the same
+-- source the revenue recon uses (it feeds D-000 REVENUE_ACTUALS to the dollar), so an hour-gap
+-- here is a real gap in D-000. Two streams, each covering a different failure domain:
+--   * PPC clicks (PPC_CLICK_TIMESTAMP_UTC, COUNT(*))          — ad-platform click ingestion. floor 50/hr
+--   * Sessions   (SES_START_TIMESTAMP_UTC, COUNT(DISTINCT id))— on-site GA session feed.      floor 1000/hr
+-- Floors sit far below the 14-day historical hourly minimums (clicks ~238/hr, sessions ~11.8k/hr),
+-- so they fire only on a genuine drop/partial, never on natural overnight sparsity. Verified on
+-- GARTNER_GDM: 24/24 hours populated every day incl. weekends + Labor Day (0 false positives over
+-- 14 days); pointed at a partial day it correctly lists the missing hours.
+-- MUST run against :expected_max (yesterday), NEVER today — today is always incomplete, and PPC
+-- clicks in particular lag several hours behind sessions during the current day.
+-- A stream FAILS (bad_hours > 0) if any hour is below its floor. Gates like max_value_check.
+-- Replace :expected_max with EXPECTED_MAX from Step 1.
+-- ============================================================
+WITH cal AS (SELECT SEQ4() AS hr FROM TABLE(GENERATOR(ROWCOUNT => 24))),
+clk AS (
+  SELECT HOUR(PPC_CLICK_TIMESTAMP_UTC) AS hr, COUNT(*) AS v
+    FROM GDM.PERFORMANCE.GDM_SES_PPC_PPL
+   WHERE is_deleted = 0 AND site_property_id IN (1,2,3,4)
+     AND PPC_CLICK_TIMESTAMP_UTC::date = :expected_max
+   GROUP BY 1
+), ses AS (
+  SELECT HOUR(SES_START_TIMESTAMP_UTC) AS hr, COUNT(DISTINCT SES_SESSION_ID) AS v
+    FROM GDM.PERFORMANCE.GDM_SES_PPC_PPL
+   WHERE is_deleted = 0 AND site_property_id IN (1,2,3,4)
+     AND SES_START_TIMESTAMP_UTC::date = :expected_max
+   GROUP BY 1
+), per_stream AS (
+  SELECT 'PPC clicks' AS stream, 50   AS floor_val, c.hr, COALESCE(k.v,0) AS v FROM cal c LEFT JOIN clk k USING (hr)
+  UNION ALL
+  SELECT 'Sessions',   1000, c.hr, COALESCE(s.v,0)                              FROM cal c LEFT JOIN ses s USING (hr)
+)
+SELECT stream,
+       :expected_max                                          AS target_day,
+       24 - COUNT_IF(v >= floor_val)                          AS bad_hours,   -- 0 = pass
+       MIN(v)                                                 AS min_hr_volume,
+       LISTAGG(CASE WHEN v < floor_val THEN LPAD(hr::string,2,'0') END, ',')
+         WITHIN GROUP (ORDER BY hr)                           AS bad_hour_list -- UTC hours below floor
+FROM per_stream
+GROUP BY stream
+ORDER BY stream;
+
+-- ============================================================
 -- revenue_reconciliation (informational only — never gates pass/fail)
 -- DAY BY DAY over a rolling ~2-month window ending :expected_max (Laurent, post-demo:
 -- do the source check over the whole window, not just the last day). Source:

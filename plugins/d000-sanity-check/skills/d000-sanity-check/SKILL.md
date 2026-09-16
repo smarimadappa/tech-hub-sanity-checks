@@ -11,6 +11,8 @@ description: >-
   first, verifies the D-000 Snowflake task succeeded, checks that each dashboard slice is fresh
   with non-zero revenue and spend, checks the
   D000_CHANNEL_DASHBOARD_MAX_DATES view (degrading gracefully if that view isn't deployed yet),
+  runs an hourly-completeness gate (all 24 UTC hours of PPC clicks and sessions present on the
+  checked day, to catch feed interruptions / site downtime / partial-day loads),
   then posts the result (tagging the week's on-call) to #sanity-check-testing. Also runs a
   shadow-mode trend/anomaly check that flags unlikely day-over-day swings in the new data
   versus recent same-weekday norms (per channel, US-holiday aware) — informational only, never
@@ -160,6 +162,29 @@ if the max-date view isn't deployed yet. A slice **fails** if `max_date` ≠ `EX
 `rev_on_max` ≤ 0, or `spend_on_max` ≤ 0. This catches a fresh-but-empty slice a date-only check
 would pass. It gates the same way the max-date checks do (a real data failure).
 
+### Step 3.2 — Hourly completeness check (GATES — a real data failure)
+
+Freshness and value>0 both look only at the daily total, so a day can land a fresh, non-zero
+max date while silently missing several hours of ingestion (a feed interruption, site-tracking
+outage, or partial-day load). This check catches that. Run the `hourly_completeness` query
+(`references/queries.sql`) with `:expected_max` = `EXPECTED_MAX`. It returns one row per source
+stream for `EXPECTED_MAX`:
+
+- **PPC clicks** — ad-platform click ingestion (covers a paid-feed interruption).
+- **Sessions** — on-site GA session feed (covers site downtime / tracking outage).
+
+Both read `GDM.PERFORMANCE.GDM_SES_PPC_PPL` — the same source the Step 4 revenue recon matches
+to the dollar, so an hour-gap here is a real gap in D-000. Each stream requires all 24 UTC hours
+of `EXPECTED_MAX` to clear a low per-hour floor (clicks ≥ 50/hr, sessions ≥ 1000/hr — both far
+below the historical hourly minimums, so natural overnight sparsity never trips them). A stream
+**fails** if `bad_hours > 0`; report the `bad_hour_list` (the UTC hours that were missing/thin)
+and `min_hr_volume`. This gates the same way Step 3.1 does.
+
+Only ever run this against `EXPECTED_MAX` (yesterday), **never today** — the current UTC day is
+always incomplete, and PPC clicks in particular lag several hours behind sessions intraday, so
+checking today would false-alarm every run. (Anchored on `EXPECTED_MAX`, the day is fully settled
+by the ~14:15 UTC run time — verified 24/24 hours on every completed day incl. weekends/holidays.)
+
 ### Step 3.5 — Trend / anomaly check (SHADOW MODE — informational only, never gates)
 
 Beyond "did the data land," this checks whether the newly-landed day looks *sane*
@@ -254,13 +279,15 @@ Pick the header from three states:
 
 - `:white_check_mark: All checks passed` — normal same-day run (`CYCLE_DATE` = today), all
   seven max dates = `EXPECTED_MAX` (or the view isn't deployed yet, per Step 3), all six value
-  slices have non-zero revenue and spend on their max date, and the task `SUCCEEDED`.
+  slices have non-zero revenue and spend on their max date, both hourly-completeness streams
+  are 24/24 on `EXPECTED_MAX` (Step 3.2), and the task `SUCCEEDED`.
 - `:hourglass_flowing_sand: Today's cycle pending — last cycle healthy` — today's run hasn't
   happened yet (`CYCLE_DATE` < today) but everything else checks out. Keep it low-key.
 - `:rotating_light: FAILURES DETECTED` — any max date differs from `EXPECTED_MAX`, any value
-  slice has zero revenue/spend on its max date, or the task's latest run is not `SUCCEEDED`.
-  This is the one that must reach on-call. (The day-by-day revenue reconciliation is
-  informational and never triggers this state.)
+  slice has zero revenue/spend on its max date, either hourly-completeness stream has a
+  thin/missing hour on `EXPECTED_MAX` (Step 3.2), or the task's latest run is not `SUCCEEDED`.
+  This is the one that must reach on-call. (The day-by-day reconciliations and the shadow-mode
+  trend check are informational and never trigger this state.)
 
 Use this layout — task states go **first** (they're the primary signal), then the max-date
 table (or the "not available yet" note):
@@ -291,7 +318,11 @@ Value>0 checks (revenue & spend on max date):
 5 | PPC              | <date>    | >0? | >0?   | ✅ / ❌
 6 | PPL              | <date>    | >0? | >0?   | ✅ / ❌
 
-<if any failure: one line per failing item — stale date or zero value — with the actual numbers>
+Hourly completeness (24 UTC hours on <EXPECTED_MAX>):
+  PPC clicks  ·  <✅ 24/24 | ❌ N hr thin/missing: HH,HH (min <min_hr_volume>/hr)>
+  Sessions    ·  <✅ 24/24 | ❌ N hr thin/missing: HH,HH (min <min_hr_volume>/hr)>
+
+<if any failure: one line per failing item — stale date, zero value, or thin/missing hours — with the actual numbers>
 Revenue vs. source (60d): <one-line summary from Step 4>
 Spend vs. source (60d): <one-line summary from Step 4>
 Trend check (shadow): <✅ no new breaks | ⚠️ N new break(s): "<channel> <measure> <▲/▼> <today> vs ~<median> same-weekday median (<pct>%)" per new-break row | 🇺🇸 holiday — suppressed>
