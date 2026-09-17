@@ -225,8 +225,8 @@ see the backtest note at the bottom of `anomaly.sql` for the numbers):
 - **`IS_COMPLETE = 1`** defines the actuals boundary — the table carries forecast rows
   ~2 years into the future, so never key off `MAX(DATE)`.
 
-**This is shadow mode.** It NEVER changes the ✅ / ⏳ / 🚨 header and NEVER adds an
-on-call @-mention — it's an observation line only, so the team can watch it for a
+**This is shadow mode.** It NEVER changes the ✅ / ⏳ / 🚨 header and NEVER escalates or
+pages on-call beyond the always-present On-call tag — it's an observation line only, so the team can watch it for a
 tuning week before deciding which cases (if any) should graduate to a real gate.
 Surface the **`new-break-*`** rows in the `Trend check (shadow)` block (Step 6); list
 any **`ongoing-*`** rows as a demoted one-line footnote (a channel mid-trend shouldn't
@@ -250,8 +250,8 @@ both take `:expected_max` = `EXPECTED_MAX`.
   engine) sidesteps that entirely. D-000 still has no source/engine column, so a per-source spend
   breakdown isn't possible here — that stays in D-001.
 
-Both are informational only — they do NOT change the ✅ / ⏳ / 🚨 header, do NOT add an on-call
-@-mention on their own, and are NOT pass/fail checks. Per day, classify by `|pct|`: 🟢 < 10,
+Both are informational only — they do NOT change the ✅ / ⏳ / 🚨 header, do NOT escalate or
+page on-call on their own (the standard On-call tag is always present), and are NOT pass/fail checks. Per day, classify by `|pct|`: 🟢 < 10,
 🟡 10–15, 🔴 > 15. Report each as a **one-line summary** (don't paste ~60 rows):
 
 - All clean: `Revenue vs. source (60d): ✅ all days within 10%` (same shape for spend)
@@ -273,7 +273,10 @@ Slack ID can't be resolved. Full table in `references/rotation.md`.
 
 Post exactly one `slack_send_message` to channel_id `C0BN4GXJE10` (#sanity-check-testing),
 whether everything passed or not — this is a testing channel and the team wants confirmation
-either way. Tag the on-call person with `<@USERID>`.
+either way. **Always** tag the on-call person with a `<@USERID>` mention — in every post,
+whether it passed, is pending, or failed. The mention is attribution, not a page; the header
+emoji (✅ / ⏳ / 🚨) is what conveys severity. Never substitute the plain name unless the Slack
+ID genuinely cannot be resolved (see Step 5).
 
 Pick the header from three states:
 

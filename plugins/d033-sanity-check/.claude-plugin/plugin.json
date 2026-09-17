@@ -1,6 +1,6 @@
 {
   "name": "d033-sanity-check",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Daily D-033 BX Self-Service Tool data-pipeline sanity check (DMABGS-3271): verify the two Snowflake tasks succeeded and the output table's max date is fresh with non-zero revenue per brand, then post a pass/fail summary to Slack.",
   "author": { "name": "G2 GDM Team", "email": "smarimadappa@g2.com" }
 }

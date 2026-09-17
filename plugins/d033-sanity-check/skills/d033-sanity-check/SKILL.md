@@ -147,8 +147,8 @@ day-by-day: **PPC by click date, PPL by _conversion_ date** (the destination att
 reconciles in aggregate, so don't switch it back). Verified 2026-09-13: 0/61 days off
 >10%, totals within -0.3%.
 
-This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT add
-an on-call @-mention on its own, and is NOT itself a pass/fail check. (Source vs.
+This is informational only — it does NOT change the ✅ / ⏳ / 🚨 header, does NOT escalate
+or page on-call on its own (the standard On-call tag is always present), and is NOT itself a pass/fail check. (Source vs.
 destination can diverge on a given day for reasons not always understood — treat any
 mismatch as a note, not a fault.) Per day, classify by `|pct|`: 🟢 < 10, 🟡 10–15,
 🔴 > 15. Report it as a **one-line summary** at the end of the Slack message (don't
@@ -178,8 +178,11 @@ Fall back to the plain name if a Slack ID can't be resolved. Full table in
 ### Step 6 — Post the summary to Slack (always, tagging on-call)
 
 Post exactly one `slack_send_message` to channel_id `C0BN4GXJE10`
-(#sanity-check-testing), whether everything passed or not. Tag the on-call person
-with `<@USERID>`.
+(#sanity-check-testing), whether everything passed or not. **Always** tag the on-call
+person with a `<@USERID>` mention — in every post, whether it passed, is pending, or
+failed. The mention is attribution, not a page; the header emoji (✅ / ⏳ / 🚨) is what
+conveys severity. Never substitute the plain name unless the Slack ID genuinely cannot be
+resolved (see Step 5).
 
 Pick the header from three states:
 

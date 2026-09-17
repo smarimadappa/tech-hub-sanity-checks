@@ -1,6 +1,6 @@
 {
   "name": "d001-sanity-check",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Daily D-001 Performance Cube data-pipeline sanity check (Jira DMABGS-3270): verify Snowflake tasks succeeded, each cube slice is fresh with non-zero revenue and spend, and Google/Bing per-source spend is non-zero, reconcile revenue and spend vs. source day-by-day over a rolling ~2 months, then post a pass/fail summary to Slack.",
   "author": { "name": "G2 GDM Team", "email": "smarimadappa@g2.com" }
 }

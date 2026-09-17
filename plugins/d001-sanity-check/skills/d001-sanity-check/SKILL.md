@@ -133,8 +133,8 @@ day — Laurent's post-demo ask: a single-day match can hide a mid-window break)
   (Replaces the old `SPEND_RECONCILIATION.SOT_SPEND` per-source join, which only tracked the
   paid-media engines and needed scoping to match.)
 
-Both are informational only — they do NOT change the ✅ / ⏳ / 🚨 header, do NOT add an on-call
-@-mention on their own, and are NOT pass/fail checks. (Source vs. destination can diverge on a
+Both are informational only — they do NOT change the ✅ / ⏳ / 🚨 header, do NOT escalate or
+page on-call on their own (the standard On-call tag is always present), and are NOT pass/fail checks. (Source vs. destination can diverge on a
 given day for reasons not always understood — treat any mismatch as a note, not a fault.) Per
 day, classify by `|pct|`: 🟢 < 10, 🟡 10–15, 🔴 > 15. Report each as a **one-line summary** at
 the end of the Slack message (don't paste 60 rows):
@@ -172,12 +172,15 @@ name). Rotation and known IDs are in `references/rotation.md`.
 
 Post exactly one `slack_send_message` to channel_id `C0BN4GXJE10` (#sanity-check-testing),
 whether everything passed or not — this is a testing channel and the team wants confirmation
-either way. Tag the on-call person with `<@USERID>`.
+either way. **Always** tag the on-call person with a `<@USERID>` mention — in every post,
+whether it passed, is pending, or failed. The mention is attribution, not a page; the header
+emoji (✅ / ⏳ / 🚨) is what conveys severity. Never substitute the plain name unless the Slack
+ID genuinely cannot be resolved (see Step 5).
 
 Pick the header from three states:
 
 - `:white_check_mark: All checks passed` — normal same-day run (`CYCLE_DATE` = today), all six slices fresh (`max_date` = `EXPECTED_MAX`) with non-zero revenue and spend, Google and Bing spend both > 0 on `EXPECTED_MAX` (Step 4.5), both tasks `SUCCEEDED`.
-- `:hourglass_flowing_sand: Today's cycle pending — last cycle healthy` — today's refresh hasn't run yet (`CYCLE_DATE` < today) but everything matches `EXPECTED_MAX` and no task run has failed. This is the honest "not a problem, just early" state; keep it low-key (no @-mention needed, or mention without alarm).
+- `:hourglass_flowing_sand: Today's cycle pending — last cycle healthy` — today's refresh hasn't run yet (`CYCLE_DATE` < today) but everything matches `EXPECTED_MAX` and no task run has failed. This is the honest "not a problem, just early" state; keep it low-key — still tag on-call (the mention is always present), just without alarm.
 - `:rotating_light: FAILURES DETECTED` — any slice is stale (`max_date` ≠ `EXPECTED_MAX`) or has zero revenue/spend on its max date, Google or Bing spend is ≤ 0 on `EXPECTED_MAX` (Step 4.5), or any task's latest run is not `SUCCEEDED`. This is the one that must reach on-call. (The day-by-day source reconciliations in Step 4 are informational and never trigger this state.)
 
 Use this layout — task states go **first** (they're the primary signal), then the max-date table:
